@@ -1,0 +1,182 @@
+/* ===== 校园清新配色 全局样式 ===== */
+:root {
+  --primary: #52c4a0;          /* 薄荷绿 主色 */
+  --primary-light: #7dd8bb;
+  --primary-dark: #3da884;
+  --secondary: #5ab3f0;        /* 天空蓝 辅色 */
+  --secondary-light: #8ccaf6;
+  --bg: #f4f9f7;               /* 浅薄荷背景 */
+  --bg-card: #ffffff;
+  --text: #2c3e50;
+  --text-light: #7f8c8d;
+  --border: #e8f0ec;
+  --danger: #f56c6c;
+  --warning: #e6a23c;
+  --success: #52c4a0;
+  --shadow: 0 2px 12px rgba(82, 196, 160, 0.08);
+  --shadow-hover: 0 6px 20px rgba(82, 196, 160, 0.15);
+  --radius: 12px;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #app {
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}
+
+#app {
+  min-height: 100vh;
+}
+
+a { color: inherit; text-decoration: none; }
+
+/* ===== 滚动条 ===== */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #c8e6dd; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--primary-light); }
+
+/* ===== Element Plus 主题色覆盖 ===== */
+.el-button--primary {
+  --el-button-bg-color: var(--primary);
+  --el-button-border-color: var(--primary);
+  --el-button-hover-bg-color: var(--primary-dark);
+  --el-button-hover-border-color: var(--primary-dark);
+  --el-button-active-bg-color: var(--primary-dark);
+  --el-button-active-border-color: var(--primary-dark);
+}
+
+.el-menu {
+  border-right: none !important;
+}
+
+.el-pagination.is-background .el-pager li.is-active {
+  background-color: var(--primary) !important;
+}
+
+/* ===== 页面通用类 ===== */
+.page-container {
+  padding: 20px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.page-title {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.page-title::before {
+  content: '';
+  width: 4px;
+  height: 22px;
+  background: var(--primary);
+  border-radius: 2px;
+}
+
+.card-section {
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  padding: 20px;
+  box-shadow: var(--shadow);
+  margin-bottom: 20px;
+}
+
+.filter-bar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.stat-card {
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  padding: 24px;
+  box-shadow: var(--shadow);
+  transition: all 0.3s;
+}
+
+.stat-card:hover {
+  box-shadow: var(--shadow-hover);
+  transform: translateY(-2px);
+}
+
+.stat-card .stat-value {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--primary);
+  margin: 8px 0;
+}
+
+.stat-card .stat-label {
+  color: var(--text-light);
+  font-size: 14px;
+}
+
+.empty-box {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-light);
+}
+
+/* ===== 响应式 ===== */
+@media (max-width: 768px) {
+  .page-container { padding: 12px; }
+  .filter-bar { flex-direction: column; align-items: stretch; }
+  .filter-bar .el-input,
+  .filter-bar .el-select { width: 100% !important; }
+}
+
+/* ===== 登录注册页 ===== */
+.auth-container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #a8e6cf 0%, #88d8e0 50%, #b8e0f6 100%);
+  padding: 20px;
+}
+
+.auth-box {
+  background: white;
+  border-radius: 20px;
+  padding: 40px;
+  width: 100%;
+  max-width: 420px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.1);
+}
+
+.auth-logo {
+  text-align: center;
+  margin-bottom: 30px;
+}
+
+.auth-logo .logo-icon {
+  font-size: 48px;
+}
+
+.auth-logo h1 {
+  font-size: 22px;
+  color: var(--text);
+  margin-top: 12px;
+}
+
+.auth-logo p {
+  color: var(--text-light);
+  font-size: 13px;
+  margin-top: 6px;
+}

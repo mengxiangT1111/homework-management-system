@@ -1,0 +1,157 @@
+<template>
+  <div class="page-container">
+    <div class="page-title">作业提交</div>
+
+    <div v-if="assignment" class="card-section">
+      <h2 style="margin-bottom:12px">{{ assignment.title }}</h2>
+      <div class="info-row">
+        <span><el-icon><Reading /></el-icon>课程：{{ assignment.course?.name }}</span>
+        <span><el-icon><School /></el-icon>班级：{{ assignment.course?.class?.name }}</span>
+        <span :class="{ overdue: assignment.is_overdue }">
+          <el-icon><Clock /></el-icon>截止：{{ formatTime(assignment.deadline) }}
+        </span>
+      </div>
+      <div v-if="assignment.description" class="desc-box">
+        <strong>作业要求：</strong>{{ assignment.description }}
+      </div>
+      <div class="format-box">
+        允许格式：<el-tag v-for="f in (assignment.allowed_formats||[])" :key="f" size="small" effect="plain" style="margin-right:4px">{{ f }}</el-tag>
+        ｜ 最多 {{ assignment.max_files }} 个文件
+      </div>
+    </div>
+
+    <!-- 已提交记录 -->
+    <div v-if="mySubmission" class="card-section">
+      <h3 style="margin-bottom:16px;color:var(--primary)">✓ 你的提交记录</h3>
+      <el-alert v-if="mySubmission.score !== null" :title="`本次作业得分：${mySubmission.score} 分`" type="success" :closable="false" style="margin-bottom:16px" />
+      <div v-if="mySubmission.comment" class="comment-box">
+        <strong>老师评语：</strong>{{ mySubmission.comment }}
+      </div>
+      <div class="submitted-files">
+        <div class="files-title">已提交文件：</div>
+        <div v-for="f in mySubmission.files" :key="f.id" class="sub-file">
+          <el-icon><Document /></el-icon>
+          <span class="file-name">{{ f.original_name }}</span>
+          <span class="file-size">{{ formatSize(f.file_size) }}</span>
+          <el-button link type="primary" @click="previewFile(f)">预览</el-button>
+          <el-button link type="primary" @click="downloadF(f)">下载</el-button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 逾期提示 -->
+    <div v-if="assignment?.is_overdue && !mySubmission" class="card-section">
+      <el-result icon="warning" title="作业已逾期" sub-title="该作业已超过截止时间，无法提交">
+      </el-result>
+    </div>
+
+    <!-- 提交区 -->
+    <div v-if="assignment && !assignment.is_overdue" class="card-section">
+      <h3 style="margin-bottom:16px">{{ mySubmission ? '重新提交作业' : '上传作业文件' }}</h3>
+      <el-input v-model="remark" type="textarea" :rows="2" placeholder="提交备注（选填）" style="margin-bottom:16px" />
+      <FileUploader
+        ref="uploaderRef"
+        :allowed-formats="assignment.allowed_formats"
+        :max-files="assignment.max_files"
+        :max-size-mb="100"
+        @uploaded="onUploaded"
+      />
+      <el-button type="primary" size="large" :loading="submitting" :disabled="uploadedFiles.length === 0"
+        style="margin-top:20px" @click="doSubmit">
+        {{ mySubmission ? '确认重新提交' : '确认提交作业' }}
+      </el-button>
+    </div>
+
+    <!-- 预览组件 -->
+    <FilePreview v-model="previewVisible" :file-path="previewPath" :file-name="previewName" />
+  </div>
+</template>
+
+<script setup>
+import { ref, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import { Reading, School, Clock, Document } from '@element-plus/icons-vue'
+import FileUploader from '@/components/FileUploader.vue'
+import FilePreview from '@/components/FilePreview.vue'
+import { assignmentApi, submissionApi, downloadFile } from '@/api'
+
+const route = useRoute()
+const router = useRouter()
+const uploaderRef = ref()
+
+const assignment = ref(null)
+const mySubmission = ref(null)
+const remark = ref('')
+const uploadedFiles = ref([])
+const submitting = ref(false)
+
+const previewVisible = ref(false)
+const previewPath = ref('')
+const previewName = ref('')
+
+function formatTime(t) { return new Date(t).toLocaleString('zh-CN') }
+function formatSize(b) {
+  if (b < 1024) return b + ' B'
+  if (b < 1048576) return (b / 1024).toFixed(1) + ' KB'
+  return (b / 1048576).toFixed(2) + ' MB'
+}
+
+async function loadData() {
+  const res = await assignmentApi.get(route.params.id)
+  assignment.value = res.data
+  if (res.data.my_submission) {
+    mySubmission.value = res.data.my_submission
+  }
+}
+
+function onUploaded(files) {
+  uploadedFiles.value = files
+  ElMessage.success('文件上传完成，请点击"确认提交"')
+}
+
+async function doSubmit() {
+  if (uploadedFiles.value.length === 0) {
+    ElMessage.warning('请先上传文件'); return
+  }
+  submitting.value = true
+  try {
+    const res = await submissionApi.submit(route.params.id, {
+      files: uploadedFiles.value,
+      remark: remark.value
+    })
+    ElMessage.success('作业提交成功！')
+    uploadedFiles.value = []
+    remark.value = ''
+    if (uploaderRef.value) uploaderRef.value.clearAll()
+    mySubmission.value = res.data
+    await loadData()
+  } catch (e) {} finally { submitting.value = false }
+}
+
+function previewFile(f) {
+  previewPath.value = f.file_path
+  previewName.value = f.original_name
+  previewVisible.value = true
+}
+
+function downloadF(f) {
+  downloadFile('/' + f.file_path, f.original_name)
+}
+
+onMounted(loadData)
+</script>
+
+<style scoped>
+.info-row { display: flex; gap: 20px; flex-wrap: wrap; color: var(--text-light); font-size: 13px; margin-bottom: 12px; }
+.info-row span { display: flex; align-items: center; gap: 4px; }
+.overdue { color: var(--danger); font-weight: 600; }
+.desc-box { background: var(--bg); padding: 12px; border-radius: 8px; margin: 12px 0; line-height: 1.8; font-size: 14px; }
+.format-box { font-size: 13px; color: var(--text-light); margin-top: 8px; }
+.comment-box { background: #f0faf6; padding: 12px; border-radius: 8px; border-left: 4px solid var(--primary); margin-bottom: 16px; line-height: 1.8; }
+.submitted-files { margin-top: 8px; }
+.files-title { font-weight: 500; margin-bottom: 8px; }
+.sub-file { display: flex; align-items: center; gap: 10px; padding: 8px; background: var(--bg); border-radius: 6px; margin-bottom: 6px; font-size: 13px; }
+.sub-file .file-name { flex: 1; }
+.sub-file .file-size { color: var(--text-light); }
+</style>

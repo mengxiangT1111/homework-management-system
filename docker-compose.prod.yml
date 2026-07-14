@@ -1,0 +1,74 @@
+# 生产环境部署：MySQL + 后端 + 前端 一键启动
+version: "3.8"
+
+services:
+  # ===== MySQL 数据库 =====
+  mysql:
+    image: mysql:8.0
+    container_name: hw_mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123456}
+      MYSQL_DATABASE: ${DB_NAME:-homework_db}
+      MYSQL_USER: ${DB_USER:-homework}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-homework123}
+      TZ: Asia/Shanghai
+    volumes:
+      - mysql_data:/var/lib/mysql
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --default-authentication-plugin=mysql_native_password
+      --max-allowed-packet=128M
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-root123456}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - hw_net
+
+  # ===== 后端 API =====
+  backend:
+    build: ./server
+    container_name: hw_backend
+    restart: always
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      PORT: 3000
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:-homework_db}
+      DB_USER: ${DB_USER:-homework}
+      DB_PASSWORD: ${DB_PASSWORD:-homework123}
+      JWT_SECRET: ${JWT_SECRET:-change_this_secret_in_production}
+      JWT_EXPIRES_IN: 7d
+      UPLOAD_DIR: uploads
+      FILE_RETAIN_DAYS: 30
+      NODE_ENV: production
+    volumes:
+      - backend_uploads:/app/uploads
+    networks:
+      - hw_net
+
+  # ===== 前端 (Nginx) =====
+  frontend:
+    build: ./client
+    container_name: hw_frontend
+    restart: always
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+    networks:
+      - hw_net
+
+volumes:
+  mysql_data:
+  backend_uploads:
+
+networks:
+  hw_net:
+    driver: bridge

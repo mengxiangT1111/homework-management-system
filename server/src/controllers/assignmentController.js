@@ -1,0 +1,305 @@
+const { Op } = require('sequelize');
+const {
+  Assignment, Course, User, Class, Submission, SubmissionFile, ClassStudent
+} = require('../models');
+const { success, fail, paginate } = require('../utils/response');
+
+// 判断作业是否逾期
+function isOverdue(assignment) {
+  return new Date() > new Date(assignment.deadline);
+}
+
+// 作业列表
+exports.listAssignments = async (req, res, next) => {
+  try {
+    const { page = 1, pageSize = 10, keyword, course_id, status } = req.query;
+    const where = {};
+    if (course_id) where.course_id = course_id;
+    if (status) where.status = status;
+    if (keyword) {
+      where[Op.or] = [
+        { title: { [Op.like]: `%${keyword}%` } },
+        { description: { [Op.like]: `%${keyword}%` } }
+      ];
+    }
+
+    // 权限过滤
+    if (req.user.role === 'teacher') {
+      where.teacher_id = req.user.id;
+    } else if (req.user.role === 'student') {
+      // 学生只看自己班级的课程作业
+      const myClasses = await ClassStudent.findAll({
+        where: { student_id: req.user.id },
+        attributes: ['class_id']
+      });
+      const classIds = myClasses.map(c => c.class_id);
+      if (classIds.length === 0) return paginate(res, [], 0, page, pageSize);
+      const courses = await Course.findAll({
+        where: { class_id: { [Op.in]: classIds } },
+        attributes: ['id']
+      });
+      const courseIds = courses.map(c => c.id);
+      if (courseIds.length === 0) return paginate(res, [], 0, page, pageSize);
+      where.course_id = { [Op.in]: courseIds };
+    }
+
+    const { rows, count } = await Assignment.findAndCountAll({
+      where,
+      include: [
+        { model: Course, as: 'course', include: [{ model: Class, as: 'class', attributes: ['id', 'name', 'grade'] }] },
+        { model: User, as: 'teacher', attributes: ['id', 'real_name'] }
+      ],
+      order: [['deadline', 'DESC']],
+      limit: Number(pageSize),
+      offset: (Number(page) - 1) * Number(pageSize),
+      distinct: true
+    });
+
+    // 附加状态计算（是否逾期、是否已提交）
+    const result = [];
+    for (const a of rows) {
+      const item = a.toJSON();
+      item.is_overdue = isOverdue(a);
+      if (req.user.role === 'student') {
+        const sub = await Submission.findOne({
+          where: { assignment_id: a.id, student_id: req.user.id }
+        });
+        item.my_submission = sub;
+      } else if (req.user.role === 'teacher') {
+        const submitCount = await Submission.count({ where: { assignment_id: a.id } });
+        item.submit_count = submitCount;
+      }
+      result.push(item);
+    }
+    return paginate(res, result, count, page, pageSize);
+  } catch (err) {
+    next(err);
+  }
+};
+
+// 作业详情
+exports.getAssignment = async (req, res, next) => {
+  try {
+    const assignment = await Assignment.findByPk(req.params.id, {
+      include: [
+        { model: Course, as: 'course', include: [{ model: Class, as: 'class' }] },
+        { model: User, as: 'teacher', attributes: ['id', 'real_name', 'email'] }
+      ]
+    });
+    if (!assignment) return fail(res, '作业不存在', 404);
+
+    const item = assignment.toJSON();
+    item.is_overdue = isOverdue(assignment);
+
+    // 学生附带自己提交记录
+    if (req.user.role === 'student') {
+      const sub = await Submission.findOne({
+        where: { assignment_id: assignment.id, student_id: req.user.id },
+        include: [{ model: SubmissionFile, as: 'files' }]
+      });
+      item.my_submission = sub;
+    }
+
+    return success(res, item, '获取成功');
+  } catch (err) {
+    next(err);
+  }
+};
+
+// 创建作业 —— 教师
+exports.createAssignment = async (req, res, next) => {
+  try {
+    const { title, description, course_id, deadline, allowed_formats, max_files, max_size_mb } = req.body;
+    if (!title || !course_id || !deadline) {
+      return fail(res, '作业标题、所属课程、截止时间不能为空', 422);
+    }
+    const course = await Course.findByPk(course_id);
+    if (!course) return fail(res, '所属课程不存在', 404);
+
+    // 教师只能在自己的课程下创建作业
+    if (req.user.role === 'teacher' && course.teacher_id !== req.user.id) {
+      return fail(res, '只能在自己任课的课程下创建作业', 403);
+    }
+    if (new Date(deadline) <= new Date()) {
+      return fail(res, '截止时间必须晚于当前时间', 422);
+    }
+
+    const teacher_id = req.user.role === 'teacher' ? req.user.id : (course.teacher_id);
+    const assignment = await Assignment.create({
+      title,
+      description: description || null,
+      course_id,
+      teacher_id,
+      deadline,
+      allowed_formats: allowed_formats || ['pdf', 'doc', 'docx', 'jpg', 'png', 'zip'],
+      max_files: max_files || 5,
+      max_size_mb: max_size_mb || 100
+    });
+    return success(res, assignment, '作业创建成功', 201);
+  } catch (err) {
+    next(err);
+  }
+};
+
+// 更新作业 —— 教师
+exports.updateAssignment = async (req, res, next) => {
+  try {
+    const assignment = await Assignment.findByPk(req.params.id);
+    if (!assignment) return fail(res, '作业不存在', 404);
+    if (req.user.role === 'teacher' && assignment.teacher_id !== req.user.id) {
+      return fail(res, '只能修改自己发布的作业', 403);
+    }
+    const { title, description, deadline, allowed_formats, max_files, max_size_mb, status } = req.body;
+    await assignment.update({
+      title: title || assignment.title,
+      description: description !== undefined ? description : assignment.description,
+      deadline: deadline || assignment.deadline,
+      allowed_formats: allowed_formats || assignment.allowed_formats,
+      max_files: max_files || assignment.max_files,
+      max_size_mb: max_size_mb || assignment.max_size_mb,
+      status: status || assignment.status
+    });
+    return success(res, assignment, '更新成功');
+  } catch (err) {
+    next(err);
+  }
+};
+
+// 删除作业 —— 教师
+exports.deleteAssignment = async (req, res, next) => {
+  try {
+    const assignment = await Assignment.findByPk(req.params.id);
+    if (!assignment) return fail(res, '作业不存在', 404);
+    if (req.user.role === 'teacher' && assignment.teacher_id !== req.user.id) {
+      return fail(res, '只能删除自己发布的作业', 403);
+    }
+    const subCount = await Submission.count({ where: { assignment_id: assignment.id } });
+    if (subCount > 0) {
+      return fail(res, `该作业已有 ${subCount} 条提交记录，无法删除（可改为关闭状态）`, 422);
+    }
+    await assignment.destroy();
+    return success(res, null, '作业已删除');
+  } catch (err) {
+    next(err);
+  }
+};
+
+// 查看某作业下所有学生的提交情况（教师批阅用）
+exports.listAssignmentSubmissions = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const assignment = await Assignment.findByPk(id, {
+      include: [{ model: Course, as: 'course', include: [{ model: Class, as: 'class' }] }]
+    });
+    if (!assignment) return fail(res, '作业不存在', 404);
+    if (req.user.role === 'teacher' && assignment.teacher_id !== req.user.id) {
+      return fail(res, '无权查看该作业', 403);
+    }
+
+    // 获取班级所有学生
+    const students = await User.findAll({
+      include: [{
+        model: Class,
+        as: 'classes',
+        where: { id: assignment.course.class_id },
+        through: { attributes: [] },
+        required: true
+      }],
+      attributes: ['id', 'username', 'real_name', 'email'],
+      order: [['username', 'ASC']]
+    });
+
+    // 获取所有提交
+    const submissions = await Submission.findAll({
+      where: { assignment_id: id },
+      include: [{ model: SubmissionFile, as: 'files' }]
+    });
+    const subMap = new Map(submissions.map(s => [s.student_id, s]));
+
+    // 组合：每个学生 + 是否提交 + 提交详情
+    const result = students.map(stu => {
+      const sub = subMap.get(stu.id);
+      return {
+        student_id: stu.id,
+        username: stu.username,
+        real_name: stu.real_name,
+        email: stu.email,
+        submitted: !!sub,
+        submission: sub || null
+      };
+    });
+
+    const submittedCount = result.filter(r => r.submitted).length;
+    return success(res, {
+      assignment: {
+        id: assignment.id,
+        title: assignment.title,
+        deadline: assignment.deadline,
+        is_overdue: isOverdue(assignment),
+        allowed_formats: assignment.allowed_formats,
+        max_files: assignment.max_files
+      },
+      students: result,
+      total_students: result.length,
+      submitted_count: submittedCount,
+      unsubmitted_count: result.length - submittedCount
+    }, '获取成功');
+  } catch (err) {
+    next(err);
+  }
+};
+
+// 获取未交学生名单（导出 Excel 用）
+exports.getUnsubmittedList = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const assignment = await Assignment.findByPk(id, {
+      include: [{ model: Course, as: 'course', include: [{ model: Class, as: 'class' }] }]
+    });
+    if (!assignment) return fail(res, '作业不存在', 404);
+    if (req.user.role === 'teacher' && assignment.teacher_id !== req.user.id) {
+      return fail(res, '无权操作', 403);
+    }
+
+    const students = await User.findAll({
+      include: [{
+        model: Class,
+        as: 'classes',
+        where: { id: assignment.course.class_id },
+        through: { attributes: [] },
+        required: true
+      }],
+      attributes: ['id', 'username', 'real_name', 'email', 'phone'],
+      order: [['username', 'ASC']]
+    });
+
+    const submittedIds = (await Submission.findAll({
+      where: { assignment_id: id },
+      attributes: ['student_id']
+    })).map(s => s.student_id);
+    const submittedSet = new Set(submittedIds);
+
+    const unsubmitted = students
+      .filter(s => !submittedSet.has(s.id))
+      .map(s => ({
+        student_id: s.id,
+        username: s.username,
+        real_name: s.real_name,
+        email: s.email,
+        phone: s.phone
+      }));
+
+    return success(res, {
+      assignment_title: assignment.title,
+      class_name: assignment.course.class.name,
+      deadline: assignment.deadline,
+      total: students.length,
+      unsubmitted_count: unsubmitted.length,
+      list: unsubmitted
+    }, '获取成功');
+  } catch (err) {
+    next(err);
+  }
+};
+
+module.exports.isOverdue = isOverdue;

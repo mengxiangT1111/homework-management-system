@@ -1,0 +1,39 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# 环境变量（敏感信息）
+.env
+.env.local
+.env.*.local
+
+# 上传文件目录（运行时生成）
+server/uploads/*
+!server/uploads/.gitkeep
+
+# 构建产物
+client/dist/
+dist/
+build/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 日志
+logs/
+*.log
+
+# 临时文件
+*.tmp
+*.temp
+.cache/

@@ -1,0 +1,226 @@
+<template>
+  <div class="page-container">
+    <div class="page-title">作业收集（班级负责人）</div>
+
+    <el-alert v-if="positions.length > 0" type="success" :closable="false" style="margin-bottom:20px">
+      你是
+      <span v-for="(p, i) in positions" :key="i">
+        <strong>{{ p.class?.name }}</strong> 的 <strong>{{ p.position_text }}</strong><span v-if="i < positions.length - 1">、</span>
+      </span>
+      ，可在此查看本班作业提交情况并催交未交同学。
+    </el-alert>
+
+    <!-- 切换班级 -->
+    <div class="card-section" v-if="positions.length > 1">
+      <el-radio-group v-model="currentClassId" @change="loadData">
+        <el-radio-button v-for="p in positions" :key="p.class_id" :value="p.class_id">
+          {{ p.class?.name }}（{{ p.position_text }}）
+        </el-radio-button>
+      </el-radio-group>
+    </div>
+
+    <div v-if="positions.length === 0" class="card-section">
+      <el-empty description="你目前不是班级负责人，无法使用此功能" />
+    </div>
+
+    <!-- 作业提交进度 -->
+    <div v-else class="card-section">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h3 style="margin:0">📊 作业提交进度</h3>
+        <el-button type="primary" @click="openCreateDialog">
+          <el-icon><Plus /></el-icon> 发布作业
+        </el-button>
+      </div>
+      <div v-if="assignments.length === 0" class="empty-box">
+        <el-icon :size="48"><Document /></el-icon>
+        <p style="margin-top:12px">本班暂无作业</p>
+      </div>
+
+      <div v-for="a in assignments" :key="a.id" class="collect-item">
+        <div class="collect-main">
+          <div class="collect-title">
+            {{ a.title }}
+            <el-tag v-if="a.is_overdue" type="info" size="small">已截止</el-tag>
+            <el-tag v-else type="success" size="small">进行中</el-tag>
+            <span class="collect-course">{{ a.course_name }}</span>
+          </div>
+          <div class="collect-meta">
+            <span><el-icon><Clock /></el-icon>截止：{{ formatTime(a.deadline) }}</span>
+            <span>已交：<strong style="color:var(--primary)">{{ a.submitted_count }}</strong>/{{ a.total_students }}</span>
+            <span style="color:var(--danger)">未交：{{ a.unsubmitted_count }}</span>
+          </div>
+          <el-progress :percentage="a.submit_rate" :color="rateColor(a.submit_rate)" :stroke-width="8" style="margin-top:8px" />
+        </div>
+        <div class="collect-actions">
+          <el-button type="primary" size="small" @click="viewUnsubmitted(a)">未交名单</el-button>
+          <el-button type="warning" size="small" :disabled="a.unsubmitted_count === 0" @click="remind(a)">催交</el-button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 未交名单对话框 -->
+    <el-dialog v-model="unsubVisible" :title="`未交名单 - ${currentAssignment?.title}`" width="600px">
+      <div v-if="unsubData">
+        <el-alert type="warning" :closable="false" style="margin-bottom:16px">
+          共 {{ unsubData.total_students }} 人，已交 {{ unsubData.submitted_count }} 人，未交 <strong>{{ unsubData.unsubmitted_count }}</strong> 人
+        </el-alert>
+        <el-table :data="unsubData.list" stripe size="small" max-height="360">
+          <el-table-column type="index" label="#" width="50" />
+          <el-table-column label="学号" prop="username" width="120" />
+          <el-table-column label="姓名" prop="real_name" width="100" />
+          <el-table-column label="职务" width="80">
+            <template #default="{ row }">
+              <el-tag v-if="row.position === 'monitor'" size="small" type="warning">班长</el-tag>
+              <el-tag v-else-if="row.position === 'commissary'" size="small" type="success">学委</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="邮箱" prop="email" />
+        </el-table>
+        <div style="margin-top:16px;text-align:right">
+          <el-button type="warning" :loading="reminding" :disabled="unsubData.unsubmitted_count === 0" @click="remind(currentAssignment)">
+            一键催交全部
+          </el-button>
+        </div>
+      </div>
+    </el-dialog>
+
+    <!-- 发布作业对话框 -->
+    <el-dialog v-model="createVisible" title="发布作业" width="560px">
+      <el-form :model="createForm" label-width="100px">
+        <el-form-item label="作业标题" required>
+          <el-input v-model="createForm.title" placeholder="如：第三次平时作业" />
+        </el-form-item>
+        <el-form-item label="所属课程" required>
+          <el-select v-model="createForm.course_id" placeholder="选择课程" style="width:100%">
+            <el-option v-for="c in classCourses" :key="c.id" :label="c.name" :value="c.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="截止时间" required>
+          <el-date-picker v-model="createForm.deadline" type="datetime" placeholder="选择截止时间"
+            format="YYYY-MM-DD HH:mm" value-format="YYYY-MM-DD HH:mm:ss"
+            :disabled-date="(d) => d < new Date(Date.now() - 86400000)" style="width:100%" />
+        </el-form-item>
+        <el-form-item label="允许格式">
+          <el-select v-model="createForm.allowed_formats" multiple style="width:100%">
+            <el-option label="PDF" value="pdf" />
+            <el-option label="Word" value="docx" />
+            <el-option label="图片" value="jpg" />
+            <el-option label="压缩包" value="zip" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="作业要求">
+          <el-input v-model="createForm.description" type="textarea" :rows="3" placeholder="作业要求说明" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="createVisible = false">取消</el-button>
+        <el-button type="primary" :loading="creating" @click="submitCreate">发布</el-button>
+      </template>
+    </el-dialog>
+  </div>
+</template>
+
+<script setup>
+import { ref, reactive, onMounted } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Document, Clock, Plus } from '@element-plus/icons-vue'
+import { classApi, courseApi } from '@/api'
+
+const positions = ref([])
+const currentClassId = ref(null)
+const assignments = ref([])
+const unsubVisible = ref(false)
+const currentAssignment = ref(null)
+const unsubData = ref(null)
+const reminding = ref(false)
+const createVisible = ref(false)
+const creating = ref(false)
+const classCourses = ref([])
+const createForm = reactive({
+  title: '',
+  course_id: null,
+  deadline: '',
+  allowed_formats: ['pdf', 'docx', 'jpg', 'zip'],
+  description: ''
+})
+
+function formatTime(t) { return new Date(t).toLocaleString('zh-CN') }
+function rateColor(r) {
+  if (r >= 80) return '#52c4a0'
+  if (r >= 50) return '#e6a23c'
+  return '#f56c6c'
+}
+
+async function loadPositions() {
+  const res = await classApi.myPositions()
+  positions.value = res.data
+  if (res.data.length > 0) {
+    currentClassId.value = res.data[0].class_id
+    await loadData()
+  }
+}
+
+async function loadData() {
+  if (!currentClassId.value) return
+  const res = await classApi.leaderAssignments(currentClassId.value)
+  assignments.value = res.data.assignments
+}
+
+async function viewUnsubmitted(a) {
+  currentAssignment.value = a
+  const res = await classApi.leaderUnsubmitted(a.id, currentClassId.value)
+  unsubData.value = res.data
+  unsubVisible.value = true
+}
+
+async function remind(a) {
+  try {
+    await ElMessageBox.confirm(`确定向 ${a.unsubmitted_count} 名未交同学发送催交通知？`, '催交提醒', { type: 'warning' })
+    reminding.value = true
+    const res = await classApi.leaderRemind(a.id, currentClassId.value)
+    ElMessage.success(res.message)
+    loadData()
+  } catch (e) {} finally { reminding.value = false }
+}
+
+async function openCreateDialog() {
+  // 获取本班课程列表
+  const res = await courseApi.list({ class_id: currentClassId.value, pageSize: 100 })
+  classCourses.value = res.data.list
+  createForm.title = ''
+  createForm.course_id = null
+  createForm.deadline = ''
+  createForm.description = ''
+  createVisible.value = true
+}
+
+async function submitCreate() {
+  if (!createForm.title || !createForm.course_id || !createForm.deadline) {
+    ElMessage.warning('请填写完整')
+    return
+  }
+  creating.value = true
+  try {
+    await classApi.leaderCreateAssignment(currentClassId.value, createForm)
+    ElMessage.success('作业发布成功')
+    createVisible.value = false
+    loadData()
+  } catch (e) {} finally { creating.value = false }
+}
+
+onMounted(loadPositions)
+</script>
+
+<style scoped>
+.collect-item {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 16px; border-radius: 8px; background: var(--bg);
+  margin-bottom: 12px; gap: 16px;
+}
+.collect-main { flex: 1; min-width: 0; }
+.collect-title { font-size: 15px; font-weight: 500; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.collect-course { font-size: 12px; color: var(--text-light); font-weight: normal; }
+.collect-meta { display: flex; gap: 16px; font-size: 12px; color: var(--text-light); flex-wrap: wrap; }
+.collect-meta span { display: flex; align-items: center; gap: 4px; }
+.collect-actions { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
+</style>
