@@ -54,6 +54,8 @@
         <div class="collect-actions">
           <el-button type="primary" size="small" @click="viewUnsubmitted(a)">未交名单</el-button>
           <el-button type="warning" size="small" :disabled="a.unsubmitted_count === 0" @click="remind(a)">催交</el-button>
+          <el-button type="success" size="small" :disabled="a.submitted_count === 0" @click="downloadAll(a)">打包下载</el-button>
+          <el-button type="danger" size="small" :disabled="a.submitted_count > 0" @click="deleteAssignment(a)">删除</el-button>
         </div>
       </div>
     </div>
@@ -111,6 +113,67 @@
         <el-form-item label="作业要求">
           <el-input v-model="createForm.description" type="textarea" :rows="3" placeholder="作业要求说明" />
         </el-form-item>
+        <el-form-item label="提交样例">
+          <div class="sample-section">
+            <el-tabs v-model="activeSampleTab" type="border-card">
+              <el-tab-pane label="图片样例" name="image">
+                <div class="sample-upload-area">
+                  <el-upload action="#" :auto-upload="false" :show-file-list="false" accept="image/*" @change="(file) => handleSampleUpload(file, 'image')">
+                    <div v-if="sampleImages.length === 0" class="upload-placeholder">
+                      <el-icon size="32"><Plus /></el-icon>
+                      <span>上传图片样例</span>
+                      <span class="upload-tip">支持 JPG、PNG 格式</span>
+                    </div>
+                  </el-upload>
+                  <div v-if="sampleImages.length > 0" class="sample-preview-grid">
+                    <div v-for="(img, idx) in sampleImages" :key="idx" class="sample-item">
+                      <img :src="img.url" alt="样例图片" />
+                      <div class="sample-actions">
+                        <el-button type="danger" size="small" circle @click="removeSample('image', idx)"><el-icon><Delete /></el-icon></el-button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </el-tab-pane>
+              <el-tab-pane label="视频样例" name="video">
+                <div class="sample-upload-area">
+                  <el-upload action="#" :auto-upload="false" :show-file-list="false" accept="video/*" @change="(file) => handleSampleUpload(file, 'video')">
+                    <div v-if="sampleVideos.length === 0" class="upload-placeholder">
+                      <el-icon size="32"><Plus /></el-icon>
+                      <span>上传视频样例</span>
+                      <span class="upload-tip">支持 MP4 格式，最大100MB</span>
+                    </div>
+                  </el-upload>
+                  <div v-if="sampleVideos.length > 0" class="sample-video-list">
+                    <div v-for="(vid, idx) in sampleVideos" :key="idx" class="video-item">
+                      <video :src="vid.url" controls></video>
+                      <el-button type="danger" size="small" @click="removeSample('video', idx)"><el-icon><Delete /></el-icon> 删除</el-button>
+                    </div>
+                  </div>
+                </div>
+              </el-tab-pane>
+              <el-tab-pane label="文档样例" name="document">
+                <div class="sample-upload-area">
+                  <el-upload action="#" :auto-upload="false" :show-file-list="false" accept=".doc,.docx,.pdf" @change="(file) => handleSampleUpload(file, 'document')">
+                    <div v-if="sampleDocuments.length === 0" class="upload-placeholder">
+                      <el-icon size="32"><Plus /></el-icon>
+                      <span>上传文档样例</span>
+                      <span class="upload-tip">支持 Word、PDF 格式</span>
+                    </div>
+                  </el-upload>
+                  <div v-if="sampleDocuments.length > 0" class="sample-document-list">
+                    <div v-for="(doc, idx) in sampleDocuments" :key="idx" class="document-item">
+                      <el-icon><Document /></el-icon>
+                      <span class="doc-name">{{ doc.name }}</span>
+                      <el-button type="danger" size="small" @click="removeSample('document', idx)"><el-icon><Delete /></el-icon></el-button>
+                    </div>
+                  </div>
+                </div>
+              </el-tab-pane>
+            </el-tabs>
+            <div class="sample-note"><el-icon><InfoFilled /></el-icon><span>样例文件将随作业一同发布</span></div>
+          </div>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="createVisible = false">取消</el-button>
@@ -123,8 +186,9 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Document, Clock, Plus } from '@element-plus/icons-vue'
-import { classApi, courseApi } from '@/api'
+import { Document, Clock, Plus, Delete, InfoFilled } from '@element-plus/icons-vue'
+import { classApi, courseApi, downloadFile } from '@/api'
+import { uploadFileChunked } from '@/utils/upload'
 
 const positions = ref([])
 const currentClassId = ref(null)
@@ -141,8 +205,13 @@ const createForm = reactive({
   course_id: null,
   deadline: '',
   allowed_formats: ['pdf', 'docx', 'jpg', 'zip'],
-  description: ''
+  description: '',
+  sample_files: []
 })
+const sampleImages = ref([])
+const sampleVideos = ref([])
+const sampleDocuments = ref([])
+const activeSampleTab = ref('image')
 
 function formatTime(t) { return new Date(t).toLocaleString('zh-CN') }
 function rateColor(r) {
@@ -191,7 +260,30 @@ async function openCreateDialog() {
   createForm.course_id = null
   createForm.deadline = ''
   createForm.description = ''
+  createForm.sample_files = []
+  sampleImages.value = []
+  sampleVideos.value = []
+  sampleDocuments.value = []
   createVisible.value = true
+}
+
+function handleSampleUpload(file, type) {
+  const maxSize = type === 'video' ? 100 : 20
+  if (file.raw.size > maxSize * 1024 * 1024) {
+    ElMessage.warning(`${type === 'video' ? '视频' : '文件'}大小不能超过 ${maxSize}MB`)
+    return
+  }
+  const url = URL.createObjectURL(file.raw)
+  if (type === 'image') sampleImages.value.push({ url, file: file.raw, name: file.name })
+  else if (type === 'video') sampleVideos.value.push({ url, file: file.raw, name: file.name })
+  else if (type === 'document') sampleDocuments.value.push({ url, file: file.raw, name: file.name })
+  ElMessage.success(`已添加样例文件：${file.name}`)
+}
+
+function removeSample(type, idx) {
+  if (type === 'image') sampleImages.value.splice(idx, 1)
+  else if (type === 'video') sampleVideos.value.splice(idx, 1)
+  else if (type === 'document') sampleDocuments.value.splice(idx, 1)
 }
 
 async function submitCreate() {
@@ -201,11 +293,37 @@ async function submitCreate() {
   }
   creating.value = true
   try {
+    // 先上传样例文件
+    const allSamples = [...sampleImages.value, ...sampleVideos.value, ...sampleDocuments.value]
+    const uploadedSamples = []
+    for (const s of allSamples) {
+      try {
+        const result = await uploadFileChunked(s.file, (p) => {})
+        uploadedSamples.push({ name: s.name, type: s.file.type, url: '/' + result.file_path })
+      } catch (e) {
+        ElMessage.warning(`样例文件 ${s.name} 上传失败，已跳过`)
+      }
+    }
+    createForm.sample_files = uploadedSamples
     await classApi.leaderCreateAssignment(currentClassId.value, createForm)
     ElMessage.success('作业发布成功')
     createVisible.value = false
     loadData()
   } catch (e) {} finally { creating.value = false }
+}
+
+async function deleteAssignment(a) {
+  try {
+    await ElMessageBox.confirm(`确定删除作业「${a.title}」？删除后不可恢复。`, '删除确认', { type: 'warning' })
+    await classApi.leaderDeleteAssignment(currentClassId.value, a.id)
+    ElMessage.success('已删除')
+    loadData()
+  } catch (e) {}
+}
+
+function downloadAll(a) {
+  const url = classApi.leaderDownloadAll(currentClassId.value, a.id)
+  downloadFile(url, `${a.title}_提交.zip`)
 }
 
 onMounted(loadPositions)

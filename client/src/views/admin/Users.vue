@@ -16,14 +16,14 @@
           <el-option label="教师" value="teacher" />
           <el-option label="管理员" value="admin" />
         </el-select>
-        <el-input v-model="keyword" placeholder="搜索用户名/姓名/邮箱" clearable style="width:260px" @keyup.enter="loadData" @clear="loadData">
+        <el-input v-model="keyword" placeholder="搜索学号/姓名/邮箱" clearable style="width:260px" @keyup.enter="loadData" @clear="loadData">
           <template #prefix><el-icon><Search /></el-icon></template>
         </el-input>
         <el-button type="primary" @click="loadData">搜索</el-button>
       </div>
 
       <el-table :data="list" stripe>
-        <el-table-column label="用户名" prop="username" width="130" />
+        <el-table-column label="学号" prop="username" width="130" />
         <el-table-column label="姓名" prop="real_name" width="120" />
         <el-table-column label="角色" width="100" align="center">
           <template #default="{ row }">
@@ -62,7 +62,7 @@
     <!-- 新增对话框 -->
     <el-dialog v-model="createVisible" :title="createRole === 'teacher' ? '新增教师账号' : '新增学生账号'" width="480px">
       <el-form :model="createForm" label-width="90px">
-        <el-form-item label="用户名" required>
+        <el-form-item label="学号" required>
           <el-input v-model="createForm.username" placeholder="登录账号" />
         </el-form-item>
         <el-form-item label="姓名" required>

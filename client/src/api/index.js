@@ -42,7 +42,9 @@ export const classApi = {
   leaderAssignments: (classId) => request.get('/classes/leader/assignments', { params: { class_id: classId } }),
   leaderUnsubmitted: (assignmentId, classId) => request.get(`/classes/leader/assignment/${assignmentId}/unsubmitted`, { params: { class_id: classId } }),
   leaderRemind: (assignmentId, classId) => request.post(`/classes/leader/assignment/${assignmentId}/remind`, { class_id: classId }),
-  leaderCreateAssignment: (classId, data) => request.post('/classes/leader/assignment', { class_id: classId, ...data })
+  leaderCreateAssignment: (classId, data) => request.post('/classes/leader/assignment', { class_id: classId, ...data }),
+  leaderDeleteAssignment: (classId, assignmentId) => request.delete(`/classes/leader/assignment/${assignmentId}?class_id=${classId}`),
+  leaderDownloadAll: (classId, assignmentId) => `/api/classes/leader/assignment/${assignmentId}/download?class_id=${classId}`
 }
 
 // ===== 课程 =====

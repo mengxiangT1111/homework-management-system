@@ -7,6 +7,14 @@ const { requireClassLeader } = require('../middleware/classLeader');
 
 router.use(auth);
 
+// 班级负责人专属路由（必须在 :id 动态路由之前，否则会被 /:id 拦截）
+router.get('/leader/assignments', requireRole('student'), requireClassLeader, classLeaderController.classAssignmentsProgress);
+router.get('/leader/assignment/:id/unsubmitted', requireRole('student'), requireClassLeader, classLeaderController.classUnsubmittedStudents);
+router.post('/leader/assignment/:id/remind', requireRole('student'), requireClassLeader, classLeaderController.classRemindUnsubmitted);
+router.post('/leader/assignment', requireRole('student'), requireClassLeader, classLeaderController.createClassAssignment);
+router.delete('/leader/assignment/:id', requireRole('student'), requireClassLeader, classLeaderController.classDeleteAssignment);
+router.get('/leader/assignment/:id/download', requireRole('student'), requireClassLeader, classLeaderController.classDownloadAll);
+
 // 学生：我的班级
 router.get('/my/list', requireRole('student'), classController.myClasses);
 // 学生：我的职务
@@ -29,15 +37,7 @@ router.put('/:id', requireRole('admin'), classController.updateClass);
 router.delete('/:id', requireRole('admin'), classController.deleteClass);
 router.post('/:id/students', requireRole('admin'), classController.addStudents);
 router.delete('/:id/students/:studentId', requireRole('admin'), classController.removeStudent);
-// 设置/修改学生职务（管理员或教师）
 router.put('/:id/students/:studentId/position', requireRole('admin', 'teacher'), classController.setStudentPosition);
-
-// 班级负责人专属：作业收集功能（学生在自己负责的班级才能访问）
-router.get('/leader/assignments', requireRole('student'), requireClassLeader, classLeaderController.classAssignmentsProgress);
-router.get('/leader/assignment/:id/unsubmitted', requireRole('student'), requireClassLeader, classLeaderController.classUnsubmittedStudents);
-router.post('/leader/assignment/:id/remind', requireRole('student'), requireClassLeader, classLeaderController.classRemindUnsubmitted);
-// 班级负责人：发布作业
-router.post('/leader/assignment', requireRole('student'), requireClassLeader, classLeaderController.createClassAssignment);
 
 module.exports = router;
 

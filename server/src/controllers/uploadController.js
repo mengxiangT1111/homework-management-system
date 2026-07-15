@@ -4,6 +4,7 @@
  */
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const multer = require('multer');
 const { success, fail } = require('../utils/response');
 
@@ -11,22 +12,65 @@ const UPLOAD_DIR = path.join(__dirname, '../../', process.env.UPLOAD_DIR || 'upl
 const CHUNK_DIR = path.join(UPLOAD_DIR, 'chunks');
 const MERGED_DIR = path.join(UPLOAD_DIR, 'merged');
 
+// 危险扩展名黑名单（禁止上传）
+const DANGEROUS_EXTS = ['.html', '.htm', '.svg', '.js', '.exe', '.bat', '.cmd', '.sh', '.php', '.asp', '.aspx', '.jsp', '.war'];
+
+// 文件大小限制（500MB）
+const MAX_FILE_SIZE = 500 * 1024 * 1024;
+
 // 确保目录存在
 [UPLOAD_DIR, CHUNK_DIR, MERGED_DIR].forEach(d => {
   if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
 });
 
+/**
+ * 校验扩展名是否安全
+ */
+function isExtSafe(filename) {
+  const ext = path.extname(filename).toLowerCase();
+  return !DANGEROUS_EXTS.includes(ext);
+}
+
+/**
+ * 校验 hash 是否为有效的 MD5 hex 字符串（防止路径穿越）
+ */
+function isValidHash(hash) {
+  return /^[a-f0-9]{32}$/.test(hash);
+}
+
+/**
+ * 校验路径是否在目标目录内（防止路径穿越）
+ */
+function isPathContained(targetDir, ...parts) {
+  const resolved = path.resolve(path.join(targetDir, ...parts));
+  return resolved.startsWith(path.resolve(targetDir));
+}
+
 // 分片存储配置
 // 注意：multer 的 destination 执行时 req.body 还未解析，
 // 所以 hash/index 必须通过 URL query 传入（req.query 在 multer 之前就可获取）
 const chunkStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const dir = path.join(CHUNK_DIR, req.query.hash || 'tmp');
+  destination: (req, res, cb) => {
+    const hash = req.query.hash;
+    // 校验 hash 格式防止路径穿越
+    if (!hash || !isValidHash(hash)) {
+      return cb(new Error('无效的文件标识'));
+    }
+    const dir = path.join(CHUNK_DIR, hash);
+    // 双重校验：确保路径在 CHUNK_DIR 内
+    if (!isPathContained(CHUNK_DIR, hash)) {
+      return cb(new Error('非法路径'));
+    }
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     cb(null, dir);
   },
   filename: (req, file, cb) => {
-    cb(null, `${req.query.hash}_${req.query.index}`);
+    const hash = req.query.hash;
+    const index = req.query.index;
+    if (!isValidHash(hash)) {
+      return cb(new Error('无效的文件标识'));
+    }
+    cb(null, `${hash}_${index}`);
   }
 });
 
@@ -57,8 +101,18 @@ exports.checkChunks = async (req, res, next) => {
   try {
     const { hash } = req.query;
     if (!hash) return fail(res, '缺少文件 hash', 422);
+    
+    // 校验 hash 格式防止路径穿越
+    if (!isValidHash(hash)) {
+      return fail(res, '无效的文件标识', 422);
+    }
 
     const dir = path.join(CHUNK_DIR, hash);
+    // 双重校验：确保路径在 CHUNK_DIR 内
+    if (!isPathContained(CHUNK_DIR, hash)) {
+      return fail(res, '非法路径', 403);
+    }
+    
     let uploaded = [];
     if (fs.existsSync(dir)) {
       uploaded = fs.readdirSync(dir).map(f => {
@@ -93,8 +147,30 @@ exports.mergeChunks = async (req, res, next) => {
       return fail(res, '缺少必要参数 hash/filename/total', 422);
     }
 
+    // 校验 hash 格式防止路径穿越
+    if (!isValidHash(hash)) {
+      return fail(res, '无效的文件标识', 422);
+    }
+
+    // 校验文件扩展名安全性
+    if (!isExtSafe(filename)) {
+      return fail(res, `不支持的文件格式：${path.extname(filename)}，禁止上传可执行或脚本文件`, 422);
+    }
+
+    // 校验文件总大小
+    const fileSize = Number(size) || 0;
+    if (fileSize > MAX_FILE_SIZE) {
+      return fail(res, `文件大小超出限制（最大 ${MAX_FILE_SIZE / 1024 / 1024}MB）`, 422);
+    }
+
+    const ext = path.extname(filename).toLowerCase();
     const mergedPath = path.join(MERGED_DIR, hash);
     const chunkDir = path.join(CHUNK_DIR, hash);
+
+    // 双重校验：确保路径在目标目录内
+    if (!isPathContained(MERGED_DIR, hash) || !isPathContained(CHUNK_DIR, hash)) {
+      return fail(res, '非法路径', 403);
+    }
 
     // 已合并过则直接返回
     if (!fs.existsSync(mergedPath)) {
@@ -121,6 +197,14 @@ exports.mergeChunks = async (req, res, next) => {
       writeStream.end();
       await new Promise((resolve) => writeStream.on('finish', resolve));
 
+      // 校验合并后的文件 hash 是否与前端传入一致（防篡改）
+      const fileBuffer = fs.readFileSync(mergedPath);
+      const actualHash = crypto.createHash('md5').update(fileBuffer).digest('hex');
+      if (actualHash !== hash) {
+        fs.unlinkSync(mergedPath);
+        return fail(res, '文件校验失败，请重新上传', 422);
+      }
+
       // 合并完成，清理分片目录
       try {
         fs.rmSync(chunkDir, { recursive: true, force: true });
@@ -128,7 +212,6 @@ exports.mergeChunks = async (req, res, next) => {
     }
 
     // 生成最终存储路径（按年月分目录），保留原扩展名
-    const ext = path.extname(filename).toLowerCase();
     const now = new Date();
     const monthDir = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
     const finalDir = path.join(UPLOAD_DIR, monthDir);
@@ -180,6 +263,14 @@ exports.simpleUpload = [
   async (req, res, next) => {
     try {
       if (!req.file) return fail(res, '未接收到文件', 422);
+      
+      // 校验文件扩展名安全性
+      if (!isExtSafe(req.file.originalname)) {
+        // 删除已上传的文件
+        fs.unlinkSync(req.file.path);
+        return fail(res, `不支持的文件格式，禁止上传可执行或脚本文件`, 422);
+      }
+      
       const relativePath = req.file.path.replace(/\\/g, '/').replace(/^.*uploads/, 'uploads');
       return success(res, {
         original_name: req.file.originalname,

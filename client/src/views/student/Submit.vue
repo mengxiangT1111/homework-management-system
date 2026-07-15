@@ -14,6 +14,30 @@
       <div v-if="assignment.description" class="desc-box">
         <strong>作业要求：</strong>{{ assignment.description }}
       </div>
+
+      <!-- 提交样例区域 -->
+      <div v-if="assignment.sample_files && assignment.sample_files.length > 0" class="sample-section">
+        <strong>📎 提交样例：</strong>
+        <div class="sample-list">
+          <div v-for="(s, idx) in assignment.sample_files" :key="idx" class="sample-file-item">
+            <template v-if="s.type && s.type.startsWith('image/')">
+              <a :href="sampleUrl(s.url)" target="_blank">
+                <img :src="sampleUrl(s.url)" :alt="s.name" class="sample-image" />
+              </a>
+              <span class="sample-label">{{ s.name }}</span>
+            </template>
+            <template v-else-if="s.type && s.type.startsWith('video/')">
+              <video :src="sampleUrl(s.url)" controls class="sample-video"></video>
+              <span class="sample-label">{{ s.name }}</span>
+            </template>
+            <template v-else>
+              <el-icon :size="24"><Document /></el-icon>
+              <a :href="sampleUrl(s.url)" target="_blank" class="sample-link">{{ s.name }}</a>
+            </template>
+          </div>
+        </div>
+      </div>
+
       <div class="format-box">
         允许格式：<el-tag v-for="f in (assignment.allowed_formats||[])" :key="f" size="small" effect="plain" style="margin-right:4px">{{ f }}</el-tag>
         ｜ 最多 {{ assignment.max_files }} 个文件
@@ -69,7 +93,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Reading, School, Clock, Document } from '@element-plus/icons-vue'
 import FileUploader from '@/components/FileUploader.vue'
@@ -77,15 +101,11 @@ import FilePreview from '@/components/FilePreview.vue'
 import { assignmentApi, submissionApi, downloadFile } from '@/api'
 
 const route = useRoute()
-const router = useRouter()
-const uploaderRef = ref()
-
 const assignment = ref(null)
 const mySubmission = ref(null)
 const remark = ref('')
 const uploadedFiles = ref([])
 const submitting = ref(false)
-
 const previewVisible = ref(false)
 const previewPath = ref('')
 const previewName = ref('')
@@ -95,6 +115,14 @@ function formatSize(b) {
   if (b < 1024) return b + ' B'
   if (b < 1048576) return (b / 1024).toFixed(1) + ' KB'
   return (b / 1048576).toFixed(2) + ' MB'
+}
+
+// 为样例文件 URL 添加 Token（支持 img/video 预览）
+function sampleUrl(url) {
+  const token = localStorage.getItem('token')
+  if (!token) return url
+  const separator = url.includes('?') ? '&' : '?'
+  return `${url}${separator}token=${token}`
 }
 
 async function loadData() {
@@ -116,14 +144,13 @@ async function doSubmit() {
   }
   submitting.value = true
   try {
-    const res = await submissionApi.submit(route.params.id, {
+    await submissionApi.submit(route.params.id, {
       files: uploadedFiles.value,
       remark: remark.value
     })
     ElMessage.success('作业提交成功！')
     uploadedFiles.value = []
     remark.value = ''
-    if (uploaderRef.value) uploaderRef.value.clearAll()
     mySubmission.value = res.data
     await loadData()
   } catch (e) {} finally { submitting.value = false }
@@ -137,6 +164,10 @@ function previewFile(f) {
 
 function downloadF(f) {
   downloadFile('/' + f.file_path, f.original_name)
+}
+
+function previewSample(s) {
+  window.open(sampleUrl(s.url), '_blank')
 }
 
 onMounted(loadData)
@@ -154,4 +185,56 @@ onMounted(loadData)
 .sub-file { display: flex; align-items: center; gap: 10px; padding: 8px; background: var(--bg); border-radius: 6px; margin-bottom: 6px; font-size: 13px; }
 .sub-file .file-name { flex: 1; }
 .sub-file .file-size { color: var(--text-light); }
+.sample-section {
+  background: #f8fbf9;
+  padding: 16px;
+  border-radius: 8px;
+  margin: 12px 0;
+}
+.sample-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 10px;
+}
+.sample-file-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px;
+  background: white;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  max-width: 200px;
+}
+.sample-image {
+  width: 180px;
+  height: 120px;
+  border-radius: 4px;
+  object-fit: cover;
+  cursor: pointer;
+}
+.sample-video {
+  width: 180px;
+  max-height: 120px;
+  border-radius: 4px;
+}
+.sample-label {
+  font-size: 12px;
+  color: var(--text-light);
+  text-align: center;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sample-link {
+  color: var(--primary);
+  font-size: 13px;
+  text-decoration: none;
+}
+.sample-link:hover {
+  text-decoration: underline;
+}
 </style>

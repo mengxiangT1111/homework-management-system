@@ -55,6 +55,12 @@ const Assignment = sequelize.define('Assignment', {
     allowNull: false,
     defaultValue: 'active',
     comment: '作业状态'
+  },
+  sample_files: {
+    type: DataTypes.JSON,
+    allowNull: true,
+    defaultValue: null,
+    comment: '提交样例文件列表 [{name, type, url}]'
   }
 }, {
   tableName: 'assignments'

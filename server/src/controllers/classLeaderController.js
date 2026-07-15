@@ -38,7 +38,8 @@ exports.createClassAssignment = async (req, res, next) => {
       deadline,
       allowed_formats: allowed_formats || ['pdf', 'doc', 'docx', 'jpg', 'png', 'zip'],
       max_files: max_files || 5,
-      max_size_mb: max_size_mb || 100
+      max_size_mb: max_size_mb || 100,
+      sample_files: req.body.sample_files || null
     });
 
     return success(res, assignment, '作业发布成功', 201);
@@ -187,6 +188,82 @@ exports.classRemindUnsubmitted = async (req, res, next) => {
       count++;
     }
     return success(res, { reminded: count }, `已催交 ${count} 名同学`);
+  } catch (err) {
+    next(err);
+  }
+};
+
+// 班级负责人：删除作业（只能删除自己发布的或本班负责的作业）
+exports.classDeleteAssignment = async (req, res, next) => {
+  try {
+    const classId = req.classLeader.classId;
+    const { id } = req.params;
+    const assignment = await Assignment.findByPk(id, {
+      include: [{ model: Course, as: 'course' }]
+    });
+    if (!assignment) return fail(res, '作业不存在', 404);
+    if (assignment.course.class_id !== classId) {
+      return fail(res, '该作业不属于你负责的班级', 403);
+    }
+    const subCount = await Submission.count({ where: { assignment_id: assignment.id } });
+    if (subCount > 0) {
+      return fail(res, `该作业已有 ${subCount} 条提交记录，建议改为"关闭"状态而非删除`, 422);
+    }
+    await assignment.destroy();
+    return success(res, null, '作业已删除');
+  } catch (err) {
+    next(err);
+  }
+};
+
+// 班级负责人：打包下载本班某作业的全部提交文件
+exports.classDownloadAll = async (req, res, next) => {
+  try {
+    const classId = req.classLeader.classId;
+    const { id } = req.params;
+    const assignment = await Assignment.findByPk(id, {
+      include: [{ model: Course, as: 'course', include: [{ model: Class, as: 'class' }] }]
+    });
+    if (!assignment) return fail(res, '作业不存在', 404);
+    if (assignment.course.class_id !== classId) {
+      return fail(res, '该作业不属于你负责的班级', 403);
+    }
+
+    const SubmissionFile = require('./../models').SubmissionFile;
+    const submissions = await Submission.findAll({
+      where: { assignment_id: id },
+      include: [
+        { model: SubmissionFile, as: 'files' },
+        { model: User, as: 'student', attributes: ['username', 'real_name'] }
+      ]
+    });
+
+    if (submissions.length === 0) {
+      return fail(res, '暂无提交记录', 422);
+    }
+
+    const archiver = require('archiver');
+    const fs = require('fs');
+    const path = require('path');
+
+    const zipName = `${assignment.title}_提交.zip`;
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(zipName)}"`);
+
+    const archive = archiver('zip', { zlib: { level: 5 } });
+    archive.on('error', (err) => next(err));
+    archive.pipe(res);
+
+    for (const sub of submissions) {
+      const folderName = `${sub.student.real_name}_${sub.student.username}`;
+      for (const file of sub.files) {
+        const abs = path.join(__dirname, '../../', file.file_path);
+        if (fs.existsSync(abs)) {
+          archive.file(abs, { name: `${folderName}/${file.original_name}` });
+        }
+      }
+    }
+    archive.finalize();
   } catch (err) {
     next(err);
   }

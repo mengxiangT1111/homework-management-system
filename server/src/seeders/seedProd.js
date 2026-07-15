@@ -8,10 +8,21 @@ require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 const bcrypt = require('bcryptjs');
 const { sequelize, User } = require('../models');
 
+const isProduction = process.env.NODE_ENV === 'production';
+
 async function seedProd() {
   try {
     await sequelize.authenticate();
-    await sequelize.sync({ alter: true });
+
+    // 生产环境：只同步模型，不自动修改表结构
+    if (isProduction) {
+      await sequelize.sync();
+      console.log('✓ 数据库表结构已验证（生产模式）');
+    } else {
+      await sequelize.sync({ alter: true });
+      console.log('✓ 数据库表结构已同步（开发模式）');
+    }
+
     console.log('数据库连接成功，开始初始化管理员账号...\n');
 
     const adminUser = process.env.ADMIN_USERNAME || 'admin';

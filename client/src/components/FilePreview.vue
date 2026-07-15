@@ -45,7 +45,7 @@ const isImage = computed(() => ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'].incl
 const fileUrl = computed(() => {
   if (!props.filePath) return ''
   const token = localStorage.getItem('token')
-  return `/${props.filePath}`
+  return `/${props.filePath}?token=${token}`
 })
 
 function downloadFile() {

@@ -9,9 +9,23 @@ const {
 const { success, fail, paginate } = require('../utils/response');
 const { isOverdue } = require('./assignmentController');
 
+// 上传目录绝对路径
+const UPLOAD_DIR = path.resolve(path.join(__dirname, '../../', process.env.UPLOAD_DIR || 'uploads'));
+
 // 获取扩展名
 function getExt(filename) {
   return path.extname(filename).replace('.', '').toLowerCase();
+}
+
+// 校验文件路径是否在 uploads 目录内（防路径穿越）
+function isPathSafe(relativePath) {
+  // 移除可能存在的 uploads/ 前缀
+  let cleanPath = relativePath;
+  if (cleanPath.startsWith('uploads/') || cleanPath.startsWith('uploads\\')) {
+    cleanPath = cleanPath.substring(8);
+  }
+  const absPath = path.resolve(path.join(UPLOAD_DIR, cleanPath));
+  return absPath.startsWith(UPLOAD_DIR);
 }
 
 // 学生提交作业（创建/更新提交记录，绑定已上传的文件）
@@ -52,9 +66,18 @@ exports.submitAssignment = async (req, res, next) => {
       }
     }
 
-    // 校验文件真实存在
+    // 校验文件真实存在 + 路径安全检查（防止路径穿越）
     for (const f of files) {
-      const abs = path.join(__dirname, '../../', f.file_path);
+      if (!isPathSafe(f.file_path)) {
+        return fail(res, `文件路径不合法`, 403);
+      }
+      // file_path 格式: "uploads/202607/xxx.docx" 或 "202607/xxx.docx"
+      // 需要移除可能存在的 uploads/ 前缀
+      let relativePath = f.file_path;
+      if (relativePath.startsWith('uploads/') || relativePath.startsWith('uploads\\')) {
+        relativePath = relativePath.substring(8); // 移除 "uploads/"
+      }
+      const abs = path.join(UPLOAD_DIR, relativePath);
       if (!fs.existsSync(abs)) {
         return fail(res, `文件 ${f.original_name} 不存在，请重新上传`, 422);
       }

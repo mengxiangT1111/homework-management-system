@@ -3,8 +3,15 @@
  */
 const jwt = require('jsonwebtoken');
 
+// 启动时强制检查 JWT_SECRET
+if (!process.env.JWT_SECRET) {
+  console.error('\n❌ FATAL ERROR: JWT_SECRET is not defined in environment variables!');
+  console.error('   Please set JWT_SECRET in your .env file before starting the server.\n');
+  process.exit(1);
+}
+
 function generateToken(userId) {
-  return jwt.sign({ userId }, process.env.JWT_SECRET || 'homework_system_secret_key_2024', {
+  return jwt.sign({ userId }, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRES_IN || '7d'
   });
 }

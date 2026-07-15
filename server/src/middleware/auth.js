@@ -9,7 +9,9 @@ async function auth(req, res, next) {
       return res.status(401).json({ code: 401, success: false, message: '未提供认证令牌', data: null });
     }
     const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'homework_system_secret_key_2024');
+
+    // JWT_SECRET 在 utils/auth.js 启动时已检查，这里直接使用
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const user = await User.findByPk(decoded.userId);
     if (!user) {
       return res.status(401).json({ code: 401, success: false, message: '用户不存在', data: null });

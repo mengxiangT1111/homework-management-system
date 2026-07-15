@@ -9,7 +9,7 @@
 
       <el-form ref="formRef" :model="form" :rules="rules" size="large" @submit.prevent="handleRegister">
         <el-form-item prop="username">
-          <el-input v-model="form.username" placeholder="用户名（3-50字符）" :prefix-icon="User" />
+          <el-input v-model="form.username" :placeholder="form.role === 'teacher' ? '工号（3-50字符）' : '学号（3-50字符）'" :prefix-icon="User" />
         </el-form-item>
         <el-form-item prop="real_name">
           <el-input v-model="form.real_name" placeholder="真实姓名" :prefix-icon="Postcard" />
@@ -67,7 +67,7 @@ const validatePass2 = (rule, value, callback) => {
 
 const rules = {
   username: [
-    { required: true, message: '请输入用户名', trigger: 'blur' },
+    { required: true, message: '请输入学号或工号', trigger: 'blur' },
     { min: 3, max: 50, message: '长度 3-50 字符', trigger: 'blur' }
   ],
   real_name: [{ required: true, message: '请输入真实姓名', trigger: 'blur' }],

@@ -49,11 +49,12 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="220" align="center" fixed="right">
+        <el-table-column label="操作" width="280" align="center" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="$router.push(`/teacher/assignments/${row.id}/review`)">批阅</el-button>
             <el-button link type="success" @click="downloadAll(row)">打包下载</el-button>
             <el-button link type="warning" @click="exportExcel(row)">导出未交</el-button>
+            <el-button v-if="row.submit_count === 0" link type="danger" @click="deleteAssignment(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -70,7 +71,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Search, Document } from '@element-plus/icons-vue'
 import { assignmentApi, submissionApi, downloadFile } from '@/api'
 
@@ -97,6 +98,15 @@ function downloadAll(row) {
 
 function exportExcel(row) {
   downloadFile(submissionApi.exportExcel(row.id), `${row.title}_未交名单.xlsx`)
+}
+
+async function deleteAssignment(row) {
+  try {
+    await ElMessageBox.confirm(`确定删除作业「${row.title}」？删除后不可恢复。`, '删除确认', { type: 'warning' })
+    await assignmentApi.remove(row.id)
+    ElMessage.success('已删除')
+    loadData()
+  } catch (e) {}
 }
 
 onMounted(loadData)

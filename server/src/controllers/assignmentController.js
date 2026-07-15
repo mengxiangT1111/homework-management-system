@@ -109,7 +109,7 @@ exports.getAssignment = async (req, res, next) => {
 // 创建作业 —— 教师
 exports.createAssignment = async (req, res, next) => {
   try {
-    const { title, description, course_id, deadline, allowed_formats, max_files, max_size_mb } = req.body;
+    const { title, description, course_id, deadline, allowed_formats, max_files, max_size_mb, sample_files } = req.body;
     if (!title || !course_id || !deadline) {
       return fail(res, '作业标题、所属课程、截止时间不能为空', 422);
     }
@@ -133,7 +133,8 @@ exports.createAssignment = async (req, res, next) => {
       deadline,
       allowed_formats: allowed_formats || ['pdf', 'doc', 'docx', 'jpg', 'png', 'zip'],
       max_files: max_files || 5,
-      max_size_mb: max_size_mb || 100
+      max_size_mb: max_size_mb || 100,
+      sample_files: sample_files || null
     });
     return success(res, assignment, '作业创建成功', 201);
   } catch (err) {
@@ -165,17 +166,20 @@ exports.updateAssignment = async (req, res, next) => {
   }
 };
 
-// 删除作业 —— 教师
+// 删除作业 —— 教师/管理员
 exports.deleteAssignment = async (req, res, next) => {
   try {
-    const assignment = await Assignment.findByPk(req.params.id);
+    const assignment = await Assignment.findByPk(req.params.id, {
+      include: [{ model: Course, as: 'course' }]
+    });
     if (!assignment) return fail(res, '作业不存在', 404);
     if (req.user.role === 'teacher' && assignment.teacher_id !== req.user.id) {
       return fail(res, '只能删除自己发布的作业', 403);
     }
+    // 管理员可以删除任何作业
     const subCount = await Submission.count({ where: { assignment_id: assignment.id } });
     if (subCount > 0) {
-      return fail(res, `该作业已有 ${subCount} 条提交记录，无法删除（可改为关闭状态）`, 422);
+      return fail(res, `该作业已有 ${subCount} 条提交记录，建议改为"关闭"状态而非删除`, 422);
     }
     await assignment.destroy();
     return success(res, null, '作业已删除');

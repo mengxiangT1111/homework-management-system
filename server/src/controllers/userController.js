@@ -47,13 +47,13 @@ exports.createTeacher = async (req, res, next) => {
   try {
     const { username, password, real_name, email, phone } = req.body;
     if (!username || !password || !real_name) {
-      return fail(res, '用户名、密码、真实姓名不能为空', 422);
+      return fail(res, '学号/工号、密码、真实姓名不能为空', 422);
     }
     if (password.length < 6) {
       return fail(res, '密码长度不能少于 6 位', 422);
     }
     const exists = await User.findOne({ where: { username } });
-    if (exists) return fail(res, '该用户名已存在', 409);
+    if (exists) return fail(res, '该学号/工号已存在', 409);
 
     const user = await User.create({
       username,
@@ -75,13 +75,13 @@ exports.createStudent = async (req, res, next) => {
   try {
     const { username, password, real_name, email, phone } = req.body;
     if (!username || !password || !real_name) {
-      return fail(res, '用户名、密码、真实姓名不能为空', 422);
+      return fail(res, '学号/工号、密码、真实姓名不能为空', 422);
     }
     if (password.length < 6) {
       return fail(res, '密码长度不能少于 6 位', 422);
     }
     const exists = await User.findOne({ where: { username } });
-    if (exists) return fail(res, '该用户名已存在', 409);
+    if (exists) return fail(res, '该学号/工号已存在', 409);
 
     const user = await User.create({
       username,
@@ -106,7 +106,7 @@ exports.resetPassword = async (req, res, next) => {
     const user = await User.findByPk(id);
     if (!user) return fail(res, '用户不存在', 404);
     if (!new_password) {
-      // 默认重置为学号后6位或固定默认密码
+      // 默认重置为固定默认密码
       new_password = '123456';
     }
     if (new_password.length < 6) {
@@ -116,7 +116,8 @@ exports.resetPassword = async (req, res, next) => {
       { password: bcrypt.hashSync(new_password, 10) },
       { where: { id } }
     );
-    return success(res, { new_password }, '密码已重置');
+    // 不返回新密码，避免敏感信息泄露
+    return success(res, null, '密码已重置，请告知用户新密码');
   } catch (err) {
     next(err);
   }
@@ -127,6 +128,10 @@ exports.toggleStatus = async (req, res, next) => {
   try {
     const user = await User.findByPk(req.params.id);
     if (!user) return fail(res, '用户不存在', 404);
+    // 不能对自己执行此操作
+    if (user.id === req.user.id) {
+      return fail(res, '不能对自己执行此操作', 422);
+    }
     if (user.role === 'admin' && user.status === 1) {
       return fail(res, '不能禁用管理员账号', 422);
     }
@@ -143,6 +148,10 @@ exports.deleteUser = async (req, res, next) => {
   try {
     const user = await User.findByPk(req.params.id);
     if (!user) return fail(res, '用户不存在', 404);
+    // 不能对自己执行此操作
+    if (user.id === req.user.id) {
+      return fail(res, '不能对自己执行此操作', 422);
+    }
     if (user.role === 'admin') {
       return fail(res, '不能删除管理员账号', 422);
     }
