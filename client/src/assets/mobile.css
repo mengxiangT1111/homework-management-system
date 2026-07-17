@@ -1,24 +1,62 @@
 /* ===== 响应式修复：手机端适配 ===== */
 
-/* 1. 隐藏侧边栏文字，只显示图标 */
+/* 1. 侧边栏：手机端完全收起，底部导航替代 */
 @media (max-width: 768px) {
+  .sidebar {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    height: 100vh;
+    z-index: 1000;
+    transition: transform 0.3s ease !important;
+  }
+  .sidebar:not(.is-mobile-open) {
+    transform: translateX(-100%);
+  }
+  .sidebar.is-mobile-open {
+    transform: translateX(0);
+    width: 220px !important;
+  }
   .sidebar .logo-text,
   .sidebar .el-menu-item span {
+    display: inline !important;
+  }
+  /* 手机端遮罩层 */
+  .sidebar-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 999;
+  }
+  .sidebar-overlay.is-visible {
+    display: block;
+  }
+  /* 侧边栏菜单项间距 */
+  .sidebar .el-menu-item {
+    height: 42px !important;
+    margin: 2px 8px !important;
+    border-radius: 6px !important;
+  }
+}
+
+/* 2. 顶栏：手机端紧凑 */
+@media (max-width: 768px) {
+  .topbar {
+    height: 50px !important;
+    padding: 0 12px !important;
+  }
+  .welcome {
     display: none !important;
   }
-  .sidebar {
-    width: 64px !important;
+  .user-name {
+    display: none !important;
   }
-  .sidebar .el-menu-item {
-    justify-content: center;
-    padding: 0 !important;
-  }
-  .sidebar .el-menu-item .el-icon {
-    margin: 0 !important;
-  }
-  .sidebar .logo-area {
-    justify-content: center;
-    padding: 0 !important;
+  .collapse-btn {
+    font-size: 22px !important;
   }
 }
 

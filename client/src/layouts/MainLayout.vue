@@ -1,10 +1,15 @@
 <template>
   <el-container class="main-layout">
+    <!-- 手机端侧边栏遮罩 -->
+    <div class="sidebar-overlay" :class="{ 'is-visible': mobileMenuOpen }" @click="toggleMobileMenu"></div>
+
     <!-- 侧边栏 -->
-    <el-aside :width="collapsed ? '64px' : '220px'" class="sidebar">
+    <el-aside :width="collapsed ? '64px' : '220px'" class="sidebar" :class="{ 'is-mobile-open': mobileMenuOpen }">
       <div class="logo-area">
         <span class="logo-icon">📚</span>
         <span v-show="!collapsed" class="logo-text">作业管理系统</span>
+        <!-- 手机端关闭按钮 -->
+        <el-icon class="mobile-close" v-if="mobileMenuOpen" @click="toggleMobileMenu"><Close /></el-icon>
       </div>
       <el-menu
         :default-active="$route.path"
@@ -14,6 +19,7 @@
         background-color="transparent"
         text-color="#e8f0ec"
         active-text-color="#ffffff"
+        @select="onMenuSelect"
       >
         <el-menu-item v-for="item in menuItems" :key="item.path" :index="item.path">
           <el-icon><component :is="item.icon" /></el-icon>
@@ -26,9 +32,8 @@
       <!-- 顶栏 -->
       <el-header class="topbar">
         <div class="topbar-left">
-          <el-icon class="collapse-btn" @click="collapsed = !collapsed">
-            <Fold v-if="!collapsed" />
-            <Expand v-else />
+          <el-icon class="collapse-btn" :class="{ 'mobile-hamburger': true }" @click="toggleMobileMenu">
+            <Operation />
           </el-icon>
           <span class="welcome">{{ greeting }}，{{ authStore.realName }}</span>
         </div>
@@ -72,6 +77,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
+import { Operation, Close, Bell, CaretBottom, User, SwitchButton } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 import { useNotificationStore } from '@/stores/notification'
 import { classApi } from '@/api'
@@ -82,7 +88,8 @@ const authStore = useAuthStore()
 const notifStore = useNotificationStore()
 
 const collapsed = ref(false)
-const isClassLeader = ref(false) // 是否是班级负责人
+const mobileMenuOpen = ref(false)
+const isClassLeader = ref(false)
 let pollTimer = null
 
 const role = computed(() => authStore.role)
@@ -132,6 +139,16 @@ const greeting = computed(() => {
 
 function goNotifications() {
   router.push(`/${role.value}/notifications`)
+}
+
+function toggleMobileMenu() {
+  mobileMenuOpen.value = !mobileMenuOpen.value
+}
+
+function onMenuSelect() {
+  if (window.innerWidth <= 768) {
+    mobileMenuOpen.value = false
+  }
 }
 
 async function handleCommand(cmd) {
