@@ -1,0 +1,251 @@
+/* ===== 响应式修复：手机端适配 ===== */
+
+/* 1. 隐藏侧边栏文字，只显示图标 */
+@media (max-width: 768px) {
+  .sidebar .logo-text,
+  .sidebar .el-menu-item span {
+    display: none !important;
+  }
+  .sidebar {
+    width: 64px !important;
+  }
+  .sidebar .el-menu-item {
+    justify-content: center;
+    padding: 0 !important;
+  }
+  .sidebar .el-menu-item .el-icon {
+    margin: 0 !important;
+  }
+  .sidebar .logo-area {
+    justify-content: center;
+    padding: 0 !important;
+  }
+}
+
+/* 2. 表格响应式：横向滚动 */
+@media (max-width: 768px) {
+  .el-table {
+    width: 100%;
+    overflow-x: auto;
+    display: block;
+  }
+  .el-table__body-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .el-table__body-wrapper::-webkit-scrollbar {
+    height: 4px;
+  }
+  .el-table__body-wrapper::-webkit-scrollbar-thumb {
+    background: #c8e6dd;
+    border-radius: 2px;
+  }
+}
+
+/* 3. 弹窗响应式：全屏显示 */
+@media (max-width: 768px) {
+  .el-dialog {
+    width: 92% !important;
+    max-width: 92% !important;
+    margin: 5vh auto !important;
+  }
+  .el-dialog--center {
+    width: 92% !important;
+  }
+}
+
+/* 4. 行/列布局响应式 */
+@media (max-width: 768px) {
+  .el-row {
+    margin: 0 !important;
+  }
+  .el-col {
+    padding: 0 !important;
+    margin-bottom: 12px;
+  }
+  .page-container {
+    padding: 10px !important;
+  }
+  .card-section {
+    padding: 14px !important;
+  }
+}
+
+/* 5. 按钮触控区域放大 */
+@media (max-width: 768px) {
+  .el-button--small,
+  .el-button--default {
+    min-height: 36px;
+    min-width: 60px;
+  }
+  .el-button--link {
+    min-height: 36px;
+  }
+  .el-button--primary[style*="width:100%"] {
+    min-height: 44px;
+  }
+}
+
+/* 6. 表单输入框自适应 */
+@media (max-width: 768px) {
+  .el-input,
+  .el-select,
+  .el-date-editor,
+  .el-textarea {
+    width: 100% !important;
+  }
+  .el-form-item {
+    display: flex;
+    flex-wrap: wrap;
+  }
+  .el-form-item__label {
+    width: 100% !important;
+    text-align: left !important;
+    padding: 0 0 6px !important;
+  }
+  .el-form-item__content {
+    width: 100% !important;
+    margin-left: 0 !important;
+  }
+  .el-input-number {
+    width: 140px !important;
+  }
+  .el-input-number .el-input {
+    width: 100% !important;
+  }
+}
+
+/* 7. 统计卡片两列布局 */
+@media (max-width: 768px) {
+  .stat-card {
+    padding: 14px !important;
+  }
+  .stat-card .stat-value {
+    font-size: 24px !important;
+  }
+}
+
+/* 8. 隐藏横向滚动条 */
+@media (max-width: 768px) {
+  html, body {
+    overflow-x: hidden;
+  }
+  .main-content {
+    overflow-x: hidden !important;
+  }
+}
+
+/* 9. 作业收集项垂直排列 */
+@media (max-width: 768px) {
+  .collect-item {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+  .collect-actions {
+    flex-direction: row !important;
+    flex-wrap: wrap;
+    gap: 6px !important;
+    margin-top: 8px;
+  }
+  .collect-actions .el-button {
+    flex: 1;
+    min-width: 60px;
+  }
+}
+
+/* 10. 班级卡片一行一个 */
+@media (max-width: 768px) {
+  .class-card {
+    margin-bottom: 12px !important;
+  }
+}
+
+/* 11. 课程卡片一行一个 */
+@media (max-width: 768px) {
+  .course-card {
+    margin-bottom: 12px !important;
+  }
+}
+
+/* 12. 未交名单弹窗表格优化 */
+@media (max-width: 768px) {
+  .grade-content {
+    padding: 0 !important;
+  }
+  .grade-files {
+    overflow-x: auto;
+  }
+}
+
+/* 13. 修改密码/个人中心适配 */
+@media (max-width: 768px) {
+  .avatar-area {
+    padding: 10px 0 !important;
+  }
+  .big-avatar {
+    width: 60px !important;
+    height: 60px !important;
+    font-size: 24px !important;
+  }
+}
+
+/* 14. 通知列表适配 */
+@media (max-width: 768px) {
+  .notif-item {
+    flex-wrap: wrap;
+    gap: 8px !important;
+  }
+  .notif-actions {
+    width: 100%;
+    display: flex;
+    justify-content: flex-end;
+  }
+}
+
+/* 15. 样例文件预览适配 */
+@media (max-width: 768px) {
+  .sample-preview-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+  .sample-file-item {
+    max-width: 100% !important;
+  }
+  .sample-image,
+  .sample-video {
+    width: 100% !important;
+  }
+}
+
+/* 16. 作业提交页适配 */
+@media (max-width: 768px) {
+  .info-row {
+    flex-direction: column;
+    gap: 6px !important;
+  }
+  .sub-file {
+    flex-wrap: wrap;
+    gap: 6px !important;
+  }
+  .sub-file .file-name {
+    width: 100%;
+  }
+}
+
+/* 17. 工具条换行 */
+@media (max-width: 768px) {
+  .filter-bar {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+  .filter-bar .el-input,
+  .filter-bar .el-select {
+    width: 100% !important;
+  }
+}
+
+/* 18. 管理员操作列 */
+@media (max-width: 768px) {
+  .el-table .fixed-right {
+    position: static !important;
+  }
+}
