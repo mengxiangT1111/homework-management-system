@@ -12,6 +12,7 @@ router.get('/leader/assignments', requireRole('student'), requireClassLeader, cl
 router.get('/leader/assignment/:id/unsubmitted', requireRole('student'), requireClassLeader, classLeaderController.classUnsubmittedStudents);
 router.post('/leader/assignment/:id/remind', requireRole('student'), requireClassLeader, classLeaderController.classRemindUnsubmitted);
 router.post('/leader/assignment', requireRole('student'), requireClassLeader, classLeaderController.createClassAssignment);
+router.put('/leader/assignment/:id', requireRole('student'), requireClassLeader, classLeaderController.classUpdateAssignment);
 router.delete('/leader/assignment/:id', requireRole('student'), requireClassLeader, classLeaderController.classDeleteAssignment);
 router.get('/leader/assignment/:id/download', requireRole('student'), requireClassLeader, classLeaderController.classDownloadAll);
 
@@ -21,6 +22,7 @@ router.get('/my/list', requireRole('student'), classController.myClasses);
 router.get('/my/positions', requireRole('student'), classController.myPositions);
 // 学生：加入班级
 router.post('/:id/join', requireRole('student'), classController.joinClass);
+router.post('/:id/leave', requireRole('student'), classController.leaveClass);
 
 // 班级列表（分页）
 router.get('/', classController.listClasses);

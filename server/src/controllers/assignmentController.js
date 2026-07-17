@@ -109,7 +109,7 @@ exports.getAssignment = async (req, res, next) => {
 // 创建作业 —— 教师
 exports.createAssignment = async (req, res, next) => {
   try {
-    const { title, description, course_id, deadline, allowed_formats, max_files, max_size_mb, sample_files } = req.body;
+    const { title, description, course_id, deadline, allowed_formats, max_files, max_size_mb, sample_files, need_grading } = req.body;
     if (!title || !course_id || !deadline) {
       return fail(res, '作业标题、所属课程、截止时间不能为空', 422);
     }
@@ -134,7 +134,8 @@ exports.createAssignment = async (req, res, next) => {
       allowed_formats: allowed_formats || ['pdf', 'doc', 'docx', 'jpg', 'png', 'zip'],
       max_files: max_files || 5,
       max_size_mb: max_size_mb || 100,
-      sample_files: sample_files || null
+      sample_files: sample_files || null,
+      need_grading: need_grading !== undefined ? (need_grading ? 1 : 0) : 0
     });
     return success(res, assignment, '作业创建成功', 201);
   } catch (err) {
@@ -145,20 +146,24 @@ exports.createAssignment = async (req, res, next) => {
 // 更新作业 —— 教师
 exports.updateAssignment = async (req, res, next) => {
   try {
-    const assignment = await Assignment.findByPk(req.params.id);
+    const assignment = await Assignment.findByPk(req.params.id, {
+      include: [{ model: Course, as: 'course' }]
+    });
     if (!assignment) return fail(res, '作业不存在', 404);
     if (req.user.role === 'teacher' && assignment.teacher_id !== req.user.id) {
       return fail(res, '只能修改自己发布的作业', 403);
     }
-    const { title, description, deadline, allowed_formats, max_files, max_size_mb, status } = req.body;
+    const { title, description, deadline, allowed_formats, max_files, max_size_mb, status, need_grading, sample_files } = req.body;
     await assignment.update({
-      title: title || assignment.title,
+      title: title !== undefined ? title : assignment.title,
       description: description !== undefined ? description : assignment.description,
       deadline: deadline || assignment.deadline,
       allowed_formats: allowed_formats || assignment.allowed_formats,
       max_files: max_files || assignment.max_files,
       max_size_mb: max_size_mb || assignment.max_size_mb,
-      status: status || assignment.status
+      status: status || assignment.status,
+      need_grading: need_grading !== undefined ? (need_grading ? 1 : 0) : assignment.need_grading,
+      sample_files: sample_files !== undefined ? sample_files : assignment.sample_files
     });
     return success(res, assignment, '更新成功');
   } catch (err) {

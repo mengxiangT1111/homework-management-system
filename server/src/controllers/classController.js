@@ -214,8 +214,20 @@ exports.addStudents = async (req, res, next) => {
       attributes: ['student_id']
     });
     const existSet = new Set(existing.map(e => e.student_id));
-    const toAdd = student_ids.filter(id => !existSet.has(id));
 
+    // 检查学生是否已在其他班级
+    const alreadyInOther = await ClassStudent.findAll({
+      where: { student_id: { [Op.in]: student_ids.filter(id => !existSet.has(id)) } },
+      attributes: ['student_id', 'class_id'],
+      include: [{ model: Class, as: null, attributes: ['name'] }]
+    });
+
+    if (alreadyInOther.length > 0) {
+      const nameList = alreadyInOther.map(r => `学生ID ${r.student_id} 已在其他班级`).join('; ');
+      return fail(res, `部分学生已在其他班级中，一个学生只能加入一个班级`, 422);
+    }
+
+    const toAdd = student_ids.filter(id => !existSet.has(id));
     if (toAdd.length === 0) return fail(res, '所选学生已全部在该班级中', 422);
 
     const records = toAdd.map(sid => ({ class_id: cls.id, student_id: sid }));
@@ -244,10 +256,33 @@ exports.joinClass = async (req, res, next) => {
     const { id } = req.params;
     const cls = await Class.findByPk(id);
     if (!cls) return fail(res, '班级不存在', 404);
+
+    // 检查是否已加入该班级
     const exists = await ClassStudent.findOne({ where: { class_id: id, student_id: req.user.id } });
     if (exists) return fail(res, '你已加入该班级', 422);
+
+    // 检查是否已加入其他班级
+    const inOther = await ClassStudent.findOne({ where: { student_id: req.user.id } });
+    if (inOther) {
+      return fail(res, '你已在其他班级中，一个学生只能加入一个班级', 422);
+    }
+
     await ClassStudent.create({ class_id: id, student_id: req.user.id });
     return success(res, null, '加入班级成功');
+  } catch (err) {
+    next(err);
+  }
+};
+
+// 学生退出班级
+exports.leaveClass = async (req, res, next) => {
+  try {
+    if (req.user.role !== 'student') return fail(res, '仅学生可退出班级', 403);
+    const { id } = req.params;
+    const record = await ClassStudent.findOne({ where: { class_id: id, student_id: req.user.id } });
+    if (!record) return fail(res, '你不在该班级中', 404);
+    await record.destroy();
+    return success(res, null, '已退出班级');
   } catch (err) {
     next(err);
   }

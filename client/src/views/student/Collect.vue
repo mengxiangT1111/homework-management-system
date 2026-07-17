@@ -55,6 +55,7 @@
           <el-button type="primary" size="small" @click="viewUnsubmitted(a)">未交名单</el-button>
           <el-button type="warning" size="small" :disabled="a.unsubmitted_count === 0" @click="remind(a)">催交</el-button>
           <el-button type="success" size="small" :disabled="a.submitted_count === 0" @click="downloadAll(a)">打包下载</el-button>
+          <el-button type="primary" size="small" @click="openEdit(a)">编辑</el-button>
           <el-button type="danger" size="small" :disabled="a.submitted_count > 0" @click="deleteAssignment(a)">删除</el-button>
         </div>
       </div>
@@ -112,6 +113,13 @@
         </el-form-item>
         <el-form-item label="作业要求">
           <el-input v-model="createForm.description" type="textarea" :rows="3" placeholder="作业要求说明" />
+        </el-form-item>
+        <el-form-item label="是否需要批改">
+          <el-switch
+            v-model="createForm.need_grading"
+            active-text="需要批改"
+            inactive-text="不需要批改（提交即通过）"
+          />
         </el-form-item>
         <el-form-item label="提交样例">
           <div class="sample-section">
@@ -180,6 +188,80 @@
         <el-button type="primary" :loading="creating" @click="submitCreate">发布</el-button>
       </template>
     </el-dialog>
+
+    <!-- 编辑作业对话框 -->
+    <el-dialog v-model="editVisible" title="修改作业" width="560px" top="5vh">
+      <el-form :model="editForm" label-width="100px">
+        <el-form-item label="作业标题" required>
+          <el-input v-model="editForm.title" maxlength="100" />
+        </el-form-item>
+        <el-form-item label="截止时间" required>
+          <el-date-picker v-model="editForm.deadline" type="datetime" placeholder="选择截止时间"
+            format="YYYY-MM-DD HH:mm" value-format="YYYY-MM-DD HH:mm:ss"
+            :disabled-date="(d) => d < new Date(Date.now() - 86400000)" style="width:100%" />
+        </el-form-item>
+        <el-form-item label="允许格式">
+          <el-select v-model="editForm.allowed_formats" multiple style="width:100%">
+            <el-option label="PDF" value="pdf" />
+            <el-option label="Word" value="docx" />
+            <el-option label="图片" value="jpg" />
+            <el-option label="压缩包" value="zip" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="最大文件数">
+          <el-input-number v-model="editForm.max_files" :min="1" :max="20" />
+        </el-form-item>
+        <el-form-item label="是否需要批改">
+          <el-switch v-model="editForm.need_grading" active-text="需要批改" inactive-text="提交即通过" />
+        </el-form-item>
+        <el-form-item label="作业要求">
+          <el-input v-model="editForm.description" type="textarea" :rows="3" />
+        </el-form-item>
+        <el-form-item label="提交样例">
+          <div class="sample-section">
+            <el-tabs v-model="editSampleTab" type="border-card">
+              <el-tab-pane label="图片样例" name="image">
+                <div class="sample-upload-area">
+                  <el-upload action="#" :auto-upload="false" :show-file-list="false" accept="image/*" @change="(file) => handleEditSample(file, 'image')">
+                    <div v-if="editSampleImages.length === 0" class="upload-placeholder">
+                      <el-icon size="32"><Plus /></el-icon>
+                      <span>上传图片样例</span>
+                    </div>
+                  </el-upload>
+                  <div v-if="editSampleImages.length > 0" class="sample-preview-grid">
+                    <div v-for="(img, idx) in editSampleImages" :key="idx" class="sample-item">
+                      <img :src="img.url" alt="样例" />
+                      <div class="sample-actions"><el-button type="danger" size="small" circle @click="removeEditSample('image', idx)"><el-icon><Delete /></el-icon></el-button></div>
+                    </div>
+                  </div>
+                </div>
+              </el-tab-pane>
+              <el-tab-pane label="文档样例" name="document">
+                <div class="sample-upload-area">
+                  <el-upload action="#" :auto-upload="false" :show-file-list="false" accept=".doc,.docx,.pdf" @change="(file) => handleEditSample(file, 'document')">
+                    <div v-if="editSampleDocs.length === 0" class="upload-placeholder">
+                      <el-icon size="32"><Plus /></el-icon>
+                      <span>上传文档样例</span>
+                    </div>
+                  </el-upload>
+                  <div v-if="editSampleDocs.length > 0" class="sample-document-list">
+                    <div v-for="(doc, idx) in editSampleDocs" :key="idx" class="document-item">
+                      <el-icon><Document /></el-icon>
+                      <span class="doc-name">{{ doc.name }}</span>
+                      <el-button type="danger" size="small" @click="removeEditSample('document', idx)"><el-icon><Delete /></el-icon></el-button>
+                    </div>
+                  </div>
+                </div>
+              </el-tab-pane>
+            </el-tabs>
+          </div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="editVisible = false">取消</el-button>
+        <el-button type="primary" :loading="savingEdit" @click="saveEdit">保存修改</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -206,7 +288,8 @@ const createForm = reactive({
   deadline: '',
   allowed_formats: ['pdf', 'docx', 'jpg', 'zip'],
   description: '',
-  sample_files: []
+  sample_files: [],
+  need_grading: false
 })
 const sampleImages = ref([])
 const sampleVideos = ref([])
@@ -324,6 +407,70 @@ async function deleteAssignment(a) {
 function downloadAll(a) {
   const url = classApi.leaderDownloadAll(currentClassId.value, a.id)
   downloadFile(url, `${a.title}_提交.zip`)
+}
+
+// 编辑作业
+const editVisible = ref(false)
+const savingEdit = ref(false)
+const editingAssignment = ref(null)
+const editForm = reactive({
+  title: '', deadline: '', allowed_formats: ['pdf', 'docx', 'jpg', 'zip'],
+  max_files: 5, max_size_mb: 100, description: '', need_grading: false
+})
+const editSampleImages = ref([])
+const editSampleDocs = ref([])
+const editSampleTab = ref('image')
+
+function openEdit(a) {
+  editingAssignment.value = a
+  editForm.title = a.title
+  editForm.deadline = a.deadline
+  editForm.allowed_formats = a.allowed_formats || ['pdf', 'docx', 'jpg', 'zip']
+  editForm.max_files = a.max_files || 5
+  editForm.max_size_mb = a.max_size_mb || 100
+  editForm.description = a.description || ''
+  editForm.need_grading = !!a.need_grading
+  editForm.sample_files = a.sample_files || []
+  editSampleImages.value = []
+  editSampleDocs.value = []
+  editVisible.value = true
+}
+
+function handleEditSample(file, type) {
+  if (file.raw.size > 20 * 1024 * 1024) { ElMessage.warning('文件大小不能超过 20MB'); return }
+  const url = URL.createObjectURL(file.raw)
+  if (type === 'image') editSampleImages.value.push({ url, file: file.raw, name: file.name })
+  else if (type === 'document') editSampleDocs.value.push({ url, file: file.raw, name: file.name })
+  ElMessage.success(`已添加样例文件：${file.name}`)
+}
+
+function removeEditSample(type, idx) {
+  if (type === 'image') editSampleImages.value.splice(idx, 1)
+  else if (type === 'document') editSampleDocs.value.splice(idx, 1)
+}
+
+async function saveEdit() {
+  if (!editForm.title || !editForm.deadline) {
+    ElMessage.warning('请填写完整'); return
+  }
+  savingEdit.value = true
+  try {
+    // 上传新加的样例文件
+    const allNew = [...editSampleImages.value, ...editSampleDocs.value]
+    const uploadedSamples = []
+    for (const s of allNew) {
+      try {
+        const result = await uploadFileChunked(s.file, (p) => {})
+        uploadedSamples.push({ name: s.name, type: s.file.type, url: '/' + result.file_path })
+      } catch (e) { ElMessage.warning(`样例文件 ${s.name} 上传失败`) }
+    }
+    // 合并原有样例和新样例
+    editForm.sample_files = [...(editForm.sample_files || []), ...uploadedSamples]
+    await classApi.leaderUpdateAssignment(currentClassId.value, editingAssignment.value.id, editForm)
+    ElMessage.success('修改成功')
+    editVisible.value = false
+    loadData()
+  } catch (e) {} finally { savingEdit.value = false }
 }
 
 onMounted(loadPositions)

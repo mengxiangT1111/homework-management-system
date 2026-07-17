@@ -66,7 +66,7 @@ const page = ref(1)
 const pageSize = 10
 
 function formatTime(t) { return new Date(t).toLocaleString('zh-CN') }
-function statusText(s) { return { submitted: '待批改', graded: '已评分', returned: '已退回' }[s] || s }
+function statusText(s) { return { submitted: '待批改', graded: '已通过', returned: '已退回' }[s] || s }
 function statusType(s) { return { submitted: 'warning', graded: 'success', returned: 'info' }[s] || 'info' }
 
 async function loadData() {

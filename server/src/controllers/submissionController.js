@@ -89,7 +89,7 @@ exports.submitAssignment = async (req, res, next) => {
       defaults: {
         assignment_id: id,
         student_id: req.user.id,
-        status: 'submitted',
+        status: assignment.need_grading ? 'submitted' : 'graded',
         submitted_at: new Date(),
         remark: remark || null
       }
@@ -98,7 +98,7 @@ exports.submitAssignment = async (req, res, next) => {
     if (!created) {
       // 重新提交：删除旧文件记录
       await SubmissionFile.destroy({ where: { submission_id: submission.id } });
-      submission.status = 'submitted';
+      submission.status = assignment.need_grading ? 'submitted' : 'graded';
       submission.score = null;
       submission.comment = null;
       submission.submitted_at = new Date();

@@ -37,6 +37,14 @@
           </el-input>
         </el-form-item>
 
+        <el-form-item label="是否需要批改">
+          <el-switch
+            v-model="form.need_grading"
+            active-text="需要批改"
+            inactive-text="不需要批改（提交即通过）"
+          />
+        </el-form-item>
+
         <el-form-item label="作业要求">
           <el-input v-model="form.description" type="textarea" :rows="4"
             placeholder="详细描述作业内容、提交要求等" maxlength="2000" show-word-limit />
@@ -165,7 +173,8 @@ const form = reactive({
   max_files: 5,
   max_size_mb: 100,
   description: '',
-  sample_files: []
+  sample_files: [],
+  need_grading: false
 })
 
 const rules = {

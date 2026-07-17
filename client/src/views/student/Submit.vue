@@ -41,6 +41,8 @@
       <div class="format-box">
         允许格式：<el-tag v-for="f in (assignment.allowed_formats||[])" :key="f" size="small" effect="plain" style="margin-right:4px">{{ f }}</el-tag>
         ｜ 最多 {{ assignment.max_files }} 个文件
+        ｜ <el-tag v-if="!assignment.need_grading" type="success" size="small" effect="plain">提交即通过</el-tag>
+        <el-tag v-else type="warning" size="small" effect="plain">需批改</el-tag>
       </div>
     </div>
 
@@ -144,7 +146,7 @@ async function doSubmit() {
   }
   submitting.value = true
   try {
-    await submissionApi.submit(route.params.id, {
+    const res = await submissionApi.submit(route.params.id, {
       files: uploadedFiles.value,
       remark: remark.value
     })

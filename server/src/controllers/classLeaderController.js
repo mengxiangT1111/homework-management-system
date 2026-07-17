@@ -12,7 +12,7 @@ const { isOverdue } = require('./assignmentController');
 exports.createClassAssignment = async (req, res, next) => {
   try {
     const classId = req.classLeader.classId;
-    const { title, description, course_id, deadline, allowed_formats, max_files, max_size_mb } = req.body;
+    const { title, description, course_id, deadline, allowed_formats, max_files, max_size_mb, sample_files, need_grading } = req.body;
 
     if (!title || !course_id || !deadline) {
       return fail(res, '作业标题、所属课程、截止时间不能为空', 422);
@@ -39,7 +39,8 @@ exports.createClassAssignment = async (req, res, next) => {
       allowed_formats: allowed_formats || ['pdf', 'doc', 'docx', 'jpg', 'png', 'zip'],
       max_files: max_files || 5,
       max_size_mb: max_size_mb || 100,
-      sample_files: req.body.sample_files || null
+      sample_files: sample_files || null,
+      need_grading: need_grading !== undefined ? (need_grading ? 1 : 0) : 0
     });
 
     return success(res, assignment, '作业发布成功', 201);
@@ -264,6 +265,35 @@ exports.classDownloadAll = async (req, res, next) => {
       }
     }
     archive.finalize();
+  } catch (err) {
+    next(err);
+  }
+};
+
+// 班级负责人：修改作业
+exports.classUpdateAssignment = async (req, res, next) => {
+  try {
+    const classId = req.classLeader.classId;
+    const { id } = req.params;
+    const assignment = await Assignment.findByPk(id, {
+      include: [{ model: Course, as: 'course' }]
+    });
+    if (!assignment) return fail(res, '作业不存在', 404);
+    if (assignment.course.class_id !== classId) {
+      return fail(res, '该作业不属于你负责的班级', 403);
+    }
+    const { title, description, deadline, allowed_formats, max_files, max_size_mb, need_grading, sample_files } = req.body;
+    await assignment.update({
+      title: title !== undefined ? title : assignment.title,
+      description: description !== undefined ? description : assignment.description,
+      deadline: deadline || assignment.deadline,
+      allowed_formats: allowed_formats || assignment.allowed_formats,
+      max_files: max_files || assignment.max_files,
+      max_size_mb: max_size_mb || assignment.max_size_mb,
+      need_grading: need_grading !== undefined ? (need_grading ? 1 : 0) : assignment.need_grading,
+      sample_files: sample_files !== undefined ? sample_files : assignment.sample_files
+    });
+    return success(res, assignment, '修改成功');
   } catch (err) {
     next(err);
   }

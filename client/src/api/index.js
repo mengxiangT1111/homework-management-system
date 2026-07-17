@@ -38,11 +38,13 @@ export const classApi = {
   myClasses: () => request.get('/classes/my/list'),
   myPositions: () => request.get('/classes/my/positions'),
   join: (id) => request.post(`/classes/${id}/join`),
+  leave: (id) => request.post(`/classes/${id}/leave`),
   // 班级负责人专属
   leaderAssignments: (classId) => request.get('/classes/leader/assignments', { params: { class_id: classId } }),
   leaderUnsubmitted: (assignmentId, classId) => request.get(`/classes/leader/assignment/${assignmentId}/unsubmitted`, { params: { class_id: classId } }),
   leaderRemind: (assignmentId, classId) => request.post(`/classes/leader/assignment/${assignmentId}/remind`, { class_id: classId }),
   leaderCreateAssignment: (classId, data) => request.post('/classes/leader/assignment', { class_id: classId, ...data }),
+  leaderUpdateAssignment: (classId, assignmentId, data) => request.put(`/classes/leader/assignment/${assignmentId}?class_id=${classId}`, data),
   leaderDeleteAssignment: (classId, assignmentId) => request.delete(`/classes/leader/assignment/${assignmentId}?class_id=${classId}`),
   leaderDownloadAll: (classId, assignmentId) => `/api/classes/leader/assignment/${assignmentId}/download?class_id=${classId}`
 }

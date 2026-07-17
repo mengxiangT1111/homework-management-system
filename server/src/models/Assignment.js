@@ -61,6 +61,12 @@ const Assignment = sequelize.define('Assignment', {
     allowNull: true,
     defaultValue: null,
     comment: '提交样例文件列表 [{name, type, url}]'
+  },
+  need_grading: {
+    type: DataTypes.TINYINT,
+    allowNull: false,
+    defaultValue: 0,
+    comment: '是否需要批改：0不需要(提交即通过) 1需要(待批改)'
   }
 }, {
   tableName: 'assignments'

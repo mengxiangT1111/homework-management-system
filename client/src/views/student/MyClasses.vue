@@ -16,6 +16,7 @@
             <h3>{{ cls.name }}</h3>
             <p class="class-grade">{{ cls.grade }}</p>
             <p class="class-teacher">班主任：{{ cls.headTeacher?.real_name || '未指定' }}</p>
+            <el-button type="danger" plain size="small" style="margin-top:12px" @click="leaveClass(cls)">退出班级</el-button>
           </div>
         </el-col>
       </el-row>
@@ -40,7 +41,7 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { School } from '@element-plus/icons-vue'
 import { classApi } from '@/api'
 
@@ -69,6 +70,15 @@ async function joinClass() {
     selectedClass.value = null
     loadData()
   } catch (e) {} finally { joining.value = false }
+}
+
+async function leaveClass(cls) {
+  try {
+    await ElMessageBox.confirm(`确定退出「${cls.name}」？退出后需重新加入才能查看班级课程。`, '退出确认', { type: 'warning' })
+    await classApi.leave(cls.id)
+    ElMessage.success('已退出班级')
+    loadData()
+  } catch (e) {}
 }
 
 onMounted(loadData)
