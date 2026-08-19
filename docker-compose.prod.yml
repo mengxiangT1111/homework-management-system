@@ -63,6 +63,8 @@ services:
       COS_SECRET_KEY: ${COS_SECRET_KEY:-}
       COS_BUCKET: ${COS_BUCKET:-}
       COS_REGION: ${COS_REGION:-}
+      # ===== 可选：查重检测服务（仅部署了 Python 检测服务时配置，容器内访问宿主机用宿主机IP） =====
+      DETECTION_SERVICE_URL: ${DETECTION_SERVICE_URL:-http://localhost:8000}
     volumes:
       - backend_uploads:/app/uploads
     networks:
