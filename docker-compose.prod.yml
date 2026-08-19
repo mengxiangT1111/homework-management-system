@@ -48,6 +48,21 @@ services:
       UPLOAD_DIR: uploads
       FILE_RETAIN_DAYS: 30
       NODE_ENV: production
+      # nginx 反代场景按 X-Forwarded-For 取真实客户端 IP，
+      # 否则登录限流会把所有用户算成同一个代理 IP（全局误锁）
+      TRUST_PROXY: "1"
+      # 管理员初始账号（seed.prod.js 首次初始化时使用，登录后仍建议修改）
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+      # ===== 可选：AI 批改（留空则 AI 批改功能不可用） =====
+      AI_API_URL: ${AI_API_URL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-gpt-4o}
+      # ===== 可选：腾讯云 COS（留空则作业文件存本地数据卷） =====
+      COS_SECRET_ID: ${COS_SECRET_ID:-}
+      COS_SECRET_KEY: ${COS_SECRET_KEY:-}
+      COS_BUCKET: ${COS_BUCKET:-}
+      COS_REGION: ${COS_REGION:-}
     volumes:
       - backend_uploads:/app/uploads
     networks:

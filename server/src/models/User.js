@@ -10,8 +10,14 @@ const User = sequelize.define('User', {
   username: {
     type: DataTypes.STRING(50),
     allowNull: false,
-    unique: true,
-    comment: '登录账号'
+    unique: 'uniq_school_username',
+    comment: '登录账号（学号/工号，同校内唯一）'
+  },
+  school_id: {
+    type: DataTypes.INTEGER.UNSIGNED,
+    allowNull: true,
+    unique: 'uniq_school_username',
+    comment: '所属学校ID（管理员为空）'
   },
   password: {
     type: DataTypes.STRING(255),

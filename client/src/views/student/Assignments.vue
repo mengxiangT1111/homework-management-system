@@ -4,10 +4,10 @@
 
     <div class="card-section">
       <div class="filter-bar">
-        <el-input v-model="keyword" placeholder="搜索作业标题" clearable style="width:240px" @clear="loadData" @keyup.enter="loadData">
+        <el-input v-model="keyword" placeholder="搜索作业标题" clearable style="width:240px" @clear="search" @keyup.enter="search">
           <template #prefix><el-icon><Search /></el-icon></template>
         </el-input>
-        <el-button type="primary" @click="loadData">搜索</el-button>
+        <el-button type="primary" @click="search">搜索</el-button>
       </div>
 
       <div v-if="list.length === 0" class="empty-box">
@@ -66,6 +66,9 @@ async function loadData() {
 }
 
 function handlePage(p) { page.value = p; loadData() }
+
+// 搜索时重置到第一页，避免停留在超出结果页数的空页
+function search() { page.value = 1; loadData() }
 
 onMounted(loadData)
 </script>

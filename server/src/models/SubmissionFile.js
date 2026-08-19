@@ -36,6 +36,12 @@ const SubmissionFile = sequelize.define('SubmissionFile', {
     type: DataTypes.STRING(64),
     allowNull: true,
     comment: '文件MD5哈希，用于秒传校验'
+  },
+  is_cleaned: {
+    type: DataTypes.TINYINT,
+    allowNull: false,
+    defaultValue: 0,
+    comment: '物理文件是否已被清理：0否 1是（记录保留，前端展示"文件已过期清理"）'
   }
 }, {
   tableName: 'submission_files'

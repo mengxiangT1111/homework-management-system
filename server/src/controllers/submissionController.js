@@ -6,15 +6,22 @@ const ExcelJS = require('exceljs');
 const {
   Submission, SubmissionFile, Assignment, Course, Class, User, ClassStudent, Notification
 } = require('../models');
-const { success, fail, paginate } = require('../utils/response');
+const { success, fail, paginate, normalizePage } = require('../utils/response');
 const { isOverdue } = require('./assignmentController');
 
 // 上传目录绝对路径
 const UPLOAD_DIR = path.resolve(path.join(__dirname, '../../', process.env.UPLOAD_DIR || 'uploads'));
+const { isCOSPath, extractCOSKey, ensureLocalFile } = require('../utils/fileStorage').helpers;
 
 // 获取扩展名
 function getExt(filename) {
   return path.extname(filename).replace('.', '').toLowerCase();
+}
+
+// 文件名只保留 basename 并限长，防止 original_name 携带 ../ 造成打包下载时的 zip 路径穿越
+function sanitizeFileName(name) {
+  const base = path.basename(String(name)).replace(/[\\/:*?"<>|]/g, '_').trim();
+  return base.slice(0, 255) || 'unnamed';
 }
 
 // 校验文件路径是否在 uploads 目录内（防路径穿越）
@@ -25,7 +32,7 @@ function isPathSafe(relativePath) {
     cleanPath = cleanPath.substring(8);
   }
   const absPath = path.resolve(path.join(UPLOAD_DIR, cleanPath));
-  return absPath.startsWith(UPLOAD_DIR);
+  return absPath === UPLOAD_DIR || absPath.startsWith(UPLOAD_DIR + path.sep);
 }
 
 // 学生提交作业（创建/更新提交记录，绑定已上传的文件）
@@ -38,6 +45,7 @@ exports.submitAssignment = async (req, res, next) => {
       include: [{ model: Course, as: 'course' }]
     });
     if (!assignment) return fail(res, '作业不存在', 404);
+    if (!assignment.course) return fail(res, '作业所属课程已不存在，无法提交', 422);
 
     // 逾期禁止提交
     if (isOverdue(assignment)) {
@@ -57,17 +65,33 @@ exports.submitAssignment = async (req, res, next) => {
       return fail(res, `最多只能上传 ${assignment.max_files} 份文件`, 422);
     }
 
-    // 校验文件格式
+    // 校验文件格式 + 单文件大小上限（教师设置的 max_size_mb 此前仅前端生效）
     const allowed = assignment.allowed_formats || [];
     for (const f of files) {
+      if (!f.original_name || typeof f.original_name !== 'string') {
+        return fail(res, '文件名不能为空', 422);
+      }
+      f.original_name = sanitizeFileName(f.original_name);
       const ext = getExt(f.original_name);
       if (allowed.length > 0 && !allowed.includes(ext)) {
         return fail(res, `文件 ${f.original_name} 格式不被允许（仅支持：${allowed.join(', ')}）`, 422);
+      }
+      const declaredSize = Number(f.file_size) || 0;
+      if (declaredSize > assignment.max_size_mb * 1024 * 1024) {
+        return fail(res, `文件 ${f.original_name} 超过单文件上限 ${assignment.max_size_mb}MB`, 422);
       }
     }
 
     // 校验文件真实存在 + 路径安全检查（防止路径穿越）
     for (const f of files) {
+      // COS 路径：格式 cos://homeworks/xxx，只做格式校验（对象存在性由上传接口保证）
+      if (isCOSPath(f.file_path)) {
+        const key = extractCOSKey(f.file_path);
+        if (!key || key.includes('..')) {
+          return fail(res, `文件路径不合法`, 403);
+        }
+        continue;
+      }
       if (!isPathSafe(f.file_path)) {
         return fail(res, `文件路径不合法`, 403);
       }
@@ -81,6 +105,12 @@ exports.submitAssignment = async (req, res, next) => {
       if (!fs.existsSync(abs)) {
         return fail(res, `文件 ${f.original_name} 不存在，请重新上传`, 422);
       }
+      // 以磁盘真实大小为准再校验一次，防止客户端伪造 file_size 绕过
+      const realSize = fs.statSync(abs).size;
+      if (realSize > assignment.max_size_mb * 1024 * 1024) {
+        return fail(res, `文件 ${f.original_name} 超过单文件上限 ${assignment.max_size_mb}MB`, 422);
+      }
+      f.file_size = realSize;
     }
 
     // 创建或更新提交记录
@@ -131,6 +161,10 @@ exports.submitAssignment = async (req, res, next) => {
     });
     return success(res, result, created ? '提交成功' : '已重新提交', created ? 201 : 200);
   } catch (err) {
+    // (assignment_id, student_id) 唯一索引兜底并发提交，转成友好提示而非 500
+    if (err.name === 'SequelizeUniqueConstraintError') {
+      return fail(res, '操作过于频繁，请刷新后查看提交记录', 429);
+    }
     next(err);
   }
 };
@@ -138,7 +172,7 @@ exports.submitAssignment = async (req, res, next) => {
 // 学生查看自己的提交记录列表
 exports.mySubmissions = async (req, res, next) => {
   try {
-    const { page = 1, pageSize = 10 } = req.query;
+    const { page, pageSize } = normalizePage(req.query);
     const { rows, count } = await Submission.findAndCountAll({
       where: { student_id: req.user.id },
       include: [
@@ -149,8 +183,8 @@ exports.mySubmissions = async (req, res, next) => {
         { model: SubmissionFile, as: 'files' }
       ],
       order: [['submitted_at', 'DESC']],
-      limit: Number(pageSize),
-      offset: (Number(page) - 1) * Number(pageSize),
+      limit: pageSize,
+      offset: (page - 1) * pageSize,
       distinct: true
     });
     return paginate(res, rows, count, page, pageSize);
@@ -207,14 +241,19 @@ exports.gradeSubmission = async (req, res, next) => {
     if (req.user.role === 'teacher' && sub.assignment.teacher_id !== req.user.id) {
       return fail(res, '无权操作', 403);
     }
+    let normalizedScore = sub.score;
     if (score !== undefined && score !== null) {
       const s = Number(score);
       if (isNaN(s) || s < 0 || s > 100) {
         return fail(res, '分数需在 0-100 之间', 422);
       }
+      normalizedScore = s;
+    }
+    if (status !== undefined && status !== null && !['submitted', 'graded', 'returned'].includes(status)) {
+      return fail(res, '状态参数非法', 422);
     }
     await sub.update({
-      score: score !== undefined ? score : sub.score,
+      score: normalizedScore,
       comment: comment !== undefined ? comment : sub.comment,
       status: status || (score !== undefined ? 'graded' : sub.status),
       graded_by: req.user.id,
@@ -225,7 +264,7 @@ exports.gradeSubmission = async (req, res, next) => {
     await Notification.create({
       user_id: sub.student_id,
       title: '作业成绩已公布',
-      content: `你的作业「${sub.assignment.title}」已被批改，得分：${score !== undefined ? score : '未评分'}`,
+      content: `你的作业「${sub.assignment.title}」已被批改，得分：${score !== undefined ? normalizedScore : '未评分'}`,
       type: 'grade',
       related_id: sub.assignment_id
     });
@@ -310,17 +349,20 @@ exports.downloadAll = async (req, res, next) => {
     archive.on('error', (err) => next(err));
     archive.pipe(res);
 
-    // 按学生建文件夹
+    // 按学生建文件夹（兼容 COS 与本地文件）
     for (const sub of submissions) {
       const folderName = `${sub.student.real_name}_${sub.student.username}`;
       for (const file of sub.files) {
-        const abs = path.join(__dirname, '../../', file.file_path);
-        if (fs.existsSync(abs)) {
-          archive.file(abs, { name: `${folderName}/${file.original_name}` });
+        if (file.is_cleaned) continue; // 已清理的文件不再打包
+        try {
+          const abs = await ensureLocalFile(file.file_path);
+          archive.file(abs, { name: `${folderName}/${path.basename(file.original_name)}` });
+        } catch (e) {
+          console.warn('[打包下载] 文件获取失败，跳过:', file.file_path, e.message);
         }
       }
     }
-    archive.finalize();
+    await archive.finalize();
   } catch (err) {
     next(err);
   }

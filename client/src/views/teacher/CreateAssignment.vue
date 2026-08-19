@@ -235,7 +235,7 @@ async function submit() {
           uploadedSamples.push({
             name: s.name,
             type: s.file.type,
-            url: '/' + result.file_path
+            url: result.file_path
           })
         } catch (e) {
           ElMessage.warning(`样例文件 ${s.name} 上传失败，已跳过`)

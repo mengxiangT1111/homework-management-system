@@ -7,6 +7,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const multer = require('multer');
 const { success, fail } = require('../utils/response');
+const { isCOSConfigured, uploadToCOS } = require('../config/cos');
 
 const UPLOAD_DIR = path.join(__dirname, '../../', process.env.UPLOAD_DIR || 'uploads');
 const CHUNK_DIR = path.join(UPLOAD_DIR, 'chunks');
@@ -42,8 +43,9 @@ function isValidHash(hash) {
  * 校验路径是否在目标目录内（防止路径穿越）
  */
 function isPathContained(targetDir, ...parts) {
+  const resolvedTarget = path.resolve(targetDir);
   const resolved = path.resolve(path.join(targetDir, ...parts));
-  return resolved.startsWith(path.resolve(targetDir));
+  return resolved === resolvedTarget || resolved.startsWith(resolvedTarget + path.sep);
 }
 
 // 分片存储配置
@@ -66,9 +68,10 @@ const chunkStorage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const hash = req.query.hash;
-    const index = req.query.index;
-    if (!isValidHash(hash)) {
-      return cb(new Error('无效的文件标识'));
+    const index = Number(req.query.index);
+    // index 参与拼文件名，必须是合法非负整数，防止携带路径分隔符做目录穿越
+    if (!isValidHash(hash) || !Number.isInteger(index) || index < 0) {
+      return cb(new Error('无效的文件标识或分片序号'));
     }
     cb(null, `${hash}_${index}`);
   }
@@ -84,10 +87,13 @@ exports.uploadChunk = [
   upload.single('chunk'),
   async (req, res, next) => {
     try {
-      const hash = req.query.hash || req.body.hash;
-      const index = req.query.index !== undefined ? req.query.index : req.body.index;
-      if (!hash || index === undefined) {
-        return fail(res, '缺少分片标识 hash 或 index', 422);
+      const hash = req.query.hash;
+      const index = Number(req.query.index);
+      if (!isValidHash(hash)) {
+        return fail(res, '无效的文件标识 hash', 422);
+      }
+      if (!Number.isInteger(index) || index < 0) {
+        return fail(res, '无效的分片序号 index', 422);
       }
       return success(res, { hash, index }, `分片 ${index} 上传成功`);
     } catch (err) {
@@ -146,6 +152,10 @@ exports.mergeChunks = async (req, res, next) => {
     if (!hash || !filename || !total) {
       return fail(res, '缺少必要参数 hash/filename/total', 422);
     }
+    const totalNum = Number(total);
+    if (!Number.isInteger(totalNum) || totalNum < 1) {
+      return fail(res, '分片总数参数非法', 422);
+    }
 
     // 校验 hash 格式防止路径穿越
     if (!isValidHash(hash)) {
@@ -180,12 +190,12 @@ exports.mergeChunks = async (req, res, next) => {
 
       // 按序合并
       const files = fs.readdirSync(chunkDir);
-      if (files.length < Number(total)) {
-        return fail(res, `分片不完整（${files.length}/${total}），请续传缺失分片`, 422);
+      if (files.length < totalNum) {
+        return fail(res, `分片不完整（${files.length}/${totalNum}），请续传缺失分片`, 422);
       }
 
       const writeStream = fs.createWriteStream(mergedPath);
-      for (let i = 0; i < Number(total); i++) {
+      for (let i = 0; i < totalNum; i++) {
         const chunkFile = path.join(chunkDir, `${hash}_${i}`);
         if (!fs.existsSync(chunkFile)) {
           writeStream.end();
@@ -198,8 +208,14 @@ exports.mergeChunks = async (req, res, next) => {
       await new Promise((resolve) => writeStream.on('finish', resolve));
 
       // 校验合并后的文件 hash 是否与前端传入一致（防篡改）
-      const fileBuffer = fs.readFileSync(mergedPath);
-      const actualHash = crypto.createHash('md5').update(fileBuffer).digest('hex');
+      // 流式计算，避免大文件（上限 500MB）整体读入内存
+      const actualHash = await new Promise((resolve, reject) => {
+        const digest = crypto.createHash('md5');
+        const rs = fs.createReadStream(mergedPath);
+        rs.on('data', chunk => digest.update(chunk));
+        rs.on('end', () => resolve(digest.digest('hex')));
+        rs.on('error', reject);
+      });
       if (actualHash !== hash) {
         fs.unlinkSync(mergedPath);
         return fail(res, '文件校验失败，请重新上传', 422);
@@ -214,21 +230,36 @@ exports.mergeChunks = async (req, res, next) => {
     // 生成最终存储路径（按年月分目录），保留原扩展名
     const now = new Date();
     const monthDir = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
-    const finalDir = path.join(UPLOAD_DIR, monthDir);
-    if (!fs.existsSync(finalDir)) fs.mkdirSync(finalDir, { recursive: true });
 
     const finalName = `${hash}_${Date.now()}${ext}`;
-    const finalPath = path.join(finalDir, finalName);
+    const cosKey = `homeworks/${monthDir}/${finalName}`;
 
-    // 复制（保留 merged 副本用于秒传）
-    fs.copyFileSync(mergedPath, finalPath);
+    let relativePath;
 
-    const relativePath = path.join(process.env.UPLOAD_DIR || 'uploads', monthDir, finalName).replace(/\\/g, '/');
+    if (isCOSConfigured) {
+      // 上传到腾讯云 COS
+      try {
+        await uploadToCOS(mergedPath, cosKey);
+        relativePath = `cos://${cosKey}`;
+      } catch (cosErr) {
+        console.error('[COS 上传失败，降级本地存储]', cosErr.message);
+        const finalDir = path.join(UPLOAD_DIR, monthDir);
+        if (!fs.existsSync(finalDir)) fs.mkdirSync(finalDir, { recursive: true });
+        fs.copyFileSync(mergedPath, path.join(finalDir, finalName));
+        relativePath = path.join(process.env.UPLOAD_DIR || 'uploads', monthDir, finalName).replace(/\\/g, '/');
+      }
+    } else {
+      // 未配置 COS，存本地
+      const finalDir = path.join(UPLOAD_DIR, monthDir);
+      if (!fs.existsSync(finalDir)) fs.mkdirSync(finalDir, { recursive: true });
+      fs.copyFileSync(mergedPath, path.join(finalDir, finalName));
+      relativePath = path.join(process.env.UPLOAD_DIR || 'uploads', monthDir, finalName).replace(/\\/g, '/');
+    }
 
     return success(res, {
       original_name: filename,
       file_path: relativePath,
-      file_size: size || fs.statSync(finalPath).size,
+      file_size: size || fs.statSync(mergedPath).size,
       mime_type: mime_type || 'application/octet-stream',
       file_hash: hash,
       ext: ext.replace('.', '')
@@ -266,8 +297,8 @@ exports.simpleUpload = [
       
       // 校验文件扩展名安全性
       if (!isExtSafe(req.file.originalname)) {
-        // 删除已上传的文件
-        fs.unlinkSync(req.file.path);
+        // 删除已上传的文件（Windows 下可能被占用，删除失败不阻断响应）
+        fs.promises.unlink(req.file.path).catch(() => {});
         return fail(res, `不支持的文件格式，禁止上传可执行或脚本文件`, 422);
       }
       

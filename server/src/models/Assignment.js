@@ -67,6 +67,12 @@ const Assignment = sequelize.define('Assignment', {
     allowNull: false,
     defaultValue: 0,
     comment: '是否需要批改：0不需要(提交即通过) 1需要(待批改)'
+  },
+  enable_plagiarism: {
+    type: DataTypes.TINYINT,
+    allowNull: false,
+    defaultValue: 0,
+    comment: '是否启用查重检测：0关闭 1开启'
   }
 }, {
   tableName: 'assignments'

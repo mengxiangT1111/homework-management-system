@@ -2,7 +2,7 @@
   <div class="page-container">
     <div class="page-title">
       消息通知
-      <el-button type="primary" size="small" plain @click="markAll" style="margin-left:auto">全部已读</el-button>
+      <el-button type="primary" size="small" plain :loading="markingAll" @click="markAll" style="margin-left:auto">全部已读</el-button>
     </div>
 
     <div class="card-section">
@@ -50,6 +50,7 @@ const list = ref([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = 10
+const markingAll = ref(false)
 
 function typeIcon(type) {
   return { deadline: Clock, grade: Trophy, assignment: Document, system: Bell }[type] || Bell
@@ -72,14 +73,23 @@ function handlePage(p) {
 }
 
 async function markOne(item) {
-  await notifStore.markRead(item.id)
-  item.is_read = 1
+  // 防重复点击（避免 unreadCount 被重复扣减），并兜底接口失败时的未处理异常
+  if (item._marking || item.is_read) return
+  item._marking = true
+  try {
+    await notifStore.markRead(item.id)
+    item.is_read = 1
+  } catch (e) {} finally { item._marking = false }
 }
 
 async function markAll() {
-  await notifStore.markAllRead()
-  list.value.forEach(i => i.is_read = 1)
-  ElMessage.success('已全部标记为已读')
+  if (markingAll.value) return
+  markingAll.value = true
+  try {
+    await notifStore.markAllRead()
+    list.value.forEach(i => i.is_read = 1)
+    ElMessage.success('已全部标记为已读')
+  } catch (e) {} finally { markingAll.value = false }
 }
 
 async function removeOne(item) {

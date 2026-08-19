@@ -19,14 +19,14 @@ export const userApi = {
   resetPassword: (id, data) => request.put(`/users/${id}/password`, data),
   toggleStatus: (id) => request.patch(`/users/${id}/status`),
   remove: (id) => request.delete(`/users/${id}`),
-  teachers: () => request.get('/users/role/teachers'),
+  teachers: (params) => request.get('/users/role/teachers', { params }),
   students: (params) => request.get('/users/role/students', { params })
 }
 
 // ===== 班级 =====
 export const classApi = {
   list: (params) => request.get('/classes', { params }),
-  all: () => request.get('/classes/all/list'),
+  all: (params) => request.get('/classes/all/list', { params }),
   get: (id) => request.get(`/classes/${id}`),
   students: (id) => request.get(`/classes/${id}/students`),
   create: (data) => request.post('/classes', data),
@@ -57,7 +57,21 @@ export const courseApi = {
   create: (data) => request.post('/courses', data),
   update: (id, data) => request.put(`/courses/${id}`, data),
   remove: (id) => request.delete(`/courses/${id}`),
-  myTeaching: () => request.get('/courses/my/teaching')
+  myTeaching: () => request.get('/courses/my/teaching'),
+  // 课代表管理（任课教师/管理员）
+  assistants: (id) => request.get(`/courses/${id}/assistants`),
+  addAssistant: (id, studentId) => request.post(`/courses/${id}/assistants`, { student_id: studentId }),
+  removeAssistant: (id, studentId) => request.delete(`/courses/${id}/assistants/${studentId}`),
+  // 学生：我的课代表职务
+  myAssistantships: () => request.get('/courses/my/assistantships'),
+  // 课代表作业收集
+  assistantAssignments: (courseId) => request.get('/courses/assistant/assignments', { params: { course_id: courseId } }),
+  assistantUnsubmitted: (assignmentId, courseId) => request.get(`/courses/assistant/assignment/${assignmentId}/unsubmitted`, { params: { course_id: courseId } }),
+  assistantRemind: (assignmentId, courseId) => request.post(`/courses/assistant/assignment/${assignmentId}/remind`, { course_id: courseId }),
+  assistantCreateAssignment: (data) => request.post('/courses/assistant/assignment', data),
+  assistantUpdateAssignment: (assignmentId, data) => request.put(`/courses/assistant/assignment/${assignmentId}`, data),
+  assistantDeleteAssignment: (assignmentId, courseId) => request.delete(`/courses/assistant/assignment/${assignmentId}`, { params: { course_id: courseId } }),
+  assistantDownloadAll: (assignmentId, courseId) => `/api/courses/assistant/assignment/${assignmentId}/download?course_id=${courseId}`
 }
 
 // ===== 作业 =====
@@ -92,6 +106,27 @@ export const notificationApi = {
   remove: (id) => request.delete(`/notifications/${id}`)
 }
 
+// ===== 学校 =====
+export const schoolApi = {
+  all: () => request.get('/schools/all'),
+  list: (params) => request.get('/schools', { params }),
+  create: (data) => request.post('/schools', data),
+  update: (id, data) => request.put(`/schools/${id}`, data),
+  remove: (id) => request.delete(`/schools/${id}`)
+}
+
+// ===== AI 批改 =====
+export const aiApi = {
+  // AI 批改链路长（外部 LLM 调用 + 失败重试），单独放宽超时，
+  // 避免前端 30s 超时报错而后端仍在继续写库、教师误以为失败而重复触发
+  grade: (data) => request.post('/ai/grade', data, { timeout: 300000 }),
+  batchGrade: (data) => request.post('/ai/batch-grade', data, { timeout: 600000 }),
+  uploadReference: (formData) => request.post('/ai/upload-reference', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 30000
+  })
+}
+
 // ===== 统计 =====
 export const statsApi = {
   overview: () => request.get('/stats/overview'),
@@ -110,6 +145,16 @@ export const uploadApi = {
     timeout: 60000
   }),
   merge: (data) => request.post('/upload/merge', data)
+}
+
+// ===== 查重 =====
+export const plagiarismApi = {
+  check: (assignmentId, submissionId) => request.post(`/plagiarism/check/${assignmentId}/${submissionId}`),
+  batchCheck: (assignmentId) => request.post(`/plagiarism/batch-check/${assignmentId}`, undefined, { timeout: 600000 }),
+  results: (assignmentId, submissionId) => request.get(`/plagiarism/results/${assignmentId}/${submissionId}`),
+  maxScore: (assignmentId, submissionId) => request.get(`/plagiarism/max-score/${assignmentId}/${submissionId}`),
+  assignmentSummary: (assignmentId) => request.get(`/plagiarism/assignment-summary/${assignmentId}`),
+  deleteResults: (assignmentId, submissionId) => request.delete(`/plagiarism/results/${assignmentId}/${submissionId}`)
 }
 
 // 下载工具（带 token）
@@ -133,5 +178,12 @@ export function downloadFile(url, filename) {
       ElMessage.error('下载失败')
     }
   }
+  xhr.onerror = function () {
+    ElMessage.error('下载失败，请检查网络')
+  }
+  xhr.ontimeout = function () {
+    ElMessage.error('下载超时，请重试')
+  }
+  xhr.timeout = 300000
   xhr.send()
 }

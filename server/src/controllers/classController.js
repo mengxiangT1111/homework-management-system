@@ -1,11 +1,27 @@
 const { Op } = require('sequelize');
-const { Class, User, ClassStudent, Course } = require('../models');
-const { success, fail, paginate } = require('../utils/response');
+const { sequelize, Class, User, ClassStudent, Course, School } = require('../models');
+const { success, fail, paginate, normalizePage } = require('../utils/response');
 
-// 班级列表（分页）—— 管理员看全部；教师看自己任课/班主任的；学生看自己的
+// 学校隔离条件：非管理员强制本校，管理员可按 school_id 参数筛选
+function schoolWhere(req, where = {}) {
+  if (req.user.role === 'admin') {
+    if (req.query.school_id) where.school_id = req.query.school_id;
+  } else {
+    where.school_id = req.user.school_id;
+  }
+  return where;
+}
+
+// 非管理员访问其他学校的资源时视为不存在
+function foreignSchool(resource, req) {
+  return req.user.role !== 'admin' && resource.school_id !== req.user.school_id;
+}
+
+// 班级列表（分页）—— 管理员看全部（可按学校筛）；教师看自己任课/班主任的；学生看自己的
 exports.listClasses = async (req, res, next) => {
   try {
-    const { page = 1, pageSize = 10, keyword } = req.query;
+    const { keyword } = req.query;
+    const { page, pageSize } = normalizePage(req.query);
     const where = {};
     if (keyword) {
       where[Op.or] = [
@@ -13,6 +29,7 @@ exports.listClasses = async (req, res, next) => {
         { grade: { [Op.like]: `%${keyword}%` } }
       ];
     }
+    schoolWhere(req, where);
 
     // 权限过滤
     let classIds = null;
@@ -34,21 +51,40 @@ exports.listClasses = async (req, res, next) => {
     const { rows, count } = await Class.findAndCountAll({
       where,
       include: [
-        { model: User, as: 'headTeacher', attributes: ['id', 'real_name'], required: false }
+        { model: User, as: 'headTeacher', attributes: ['id', 'real_name'], required: false },
+        { model: School, as: 'school', attributes: ['id', 'name'], required: false }
       ],
       order: [['grade', 'DESC'], ['name', 'ASC']],
-      limit: Number(pageSize),
-      offset: (Number(page) - 1) * Number(pageSize),
+      limit: pageSize,
+      offset: (page - 1) * pageSize,
       distinct: true
     });
 
-    // 附加每班学生数
-    const result = [];
-    for (const cls of rows) {
-      const studentCount = await ClassStudent.count({ where: { class_id: cls.id } });
-      const courseCount = await Course.count({ where: { class_id: cls.id } });
-      result.push({ ...cls.toJSON(), student_count: studentCount, course_count: courseCount });
+    // 附加每班学生数/课程数（两次聚合查询替代逐行 count，避免 N+1）
+    const rowIds = rows.map(c => c.id);
+    const studentCountMap = new Map();
+    const courseCountMap = new Map();
+    if (rowIds.length > 0) {
+      const [studentCounts, courseCounts] = await Promise.all([
+        ClassStudent.findAll({
+          where: { class_id: { [Op.in]: rowIds } },
+          attributes: ['class_id', [sequelize.fn('COUNT', sequelize.col('id')), 'cnt']],
+          group: 'class_id'
+        }),
+        Course.findAll({
+          where: { class_id: { [Op.in]: rowIds } },
+          attributes: ['class_id', [sequelize.fn('COUNT', sequelize.col('id')), 'cnt']],
+          group: 'class_id'
+        })
+      ]);
+      studentCounts.forEach(r => studentCountMap.set(r.class_id, Number(r.get('cnt'))));
+      courseCounts.forEach(r => courseCountMap.set(r.class_id, Number(r.get('cnt'))));
     }
+    const result = rows.map(cls => ({
+      ...cls.toJSON(),
+      student_count: studentCountMap.get(cls.id) || 0,
+      course_count: courseCountMap.get(cls.id) || 0
+    }));
 
     return paginate(res, result, count, page, pageSize);
   } catch (err) {
@@ -56,10 +92,13 @@ exports.listClasses = async (req, res, next) => {
   }
 };
 
-// 所有班级（下拉用，不分页）
+// 所有班级（下拉用，不分页）—— 非管理员仅本校
 exports.allClasses = async (req, res, next) => {
   try {
+    const where = {};
+    schoolWhere(req, where);
     const classes = await Class.findAll({
+      where,
       include: [{ model: User, as: 'headTeacher', attributes: ['id', 'real_name'], required: false }],
       order: [['grade', 'DESC'], ['name', 'ASC']]
     });
@@ -75,7 +114,7 @@ exports.getClass = async (req, res, next) => {
     const cls = await Class.findByPk(req.params.id, {
       include: [{ model: User, as: 'headTeacher', attributes: ['id', 'real_name'], required: false }]
     });
-    if (!cls) return fail(res, '班级不存在', 404);
+    if (!cls || foreignSchool(cls, req)) return fail(res, '班级不存在', 404);
     const studentCount = await ClassStudent.count({ where: { class_id: cls.id } });
     return success(res, { ...cls.toJSON(), student_count: studentCount }, '获取成功');
   } catch (err) {
@@ -86,11 +125,22 @@ exports.getClass = async (req, res, next) => {
 // 创建班级 —— 管理员
 exports.createClass = async (req, res, next) => {
   try {
-    const { name, grade, teacher_id, description } = req.body;
+    const { name, grade, teacher_id, description, school_id } = req.body;
     if (!name || !grade) return fail(res, '班级名称和年级不能为空', 422);
+    if (!school_id) return fail(res, '请选择所属学校', 422);
+    const school = await School.findByPk(school_id);
+    if (!school) return fail(res, '所属学校不存在', 404);
+
+    let headTeacherId = teacher_id || null;
+    if (headTeacherId) {
+      const teacher = await User.findByPk(headTeacherId);
+      if (!teacher || teacher.role !== 'teacher') return fail(res, '指定的班主任无效', 422);
+      if (teacher.school_id !== Number(school_id)) return fail(res, '班主任必须属于该班级所在学校', 422);
+    }
+
     const cls = await Class.create({
-      name, grade,
-      teacher_id: teacher_id || null,
+      name, grade, school_id,
+      teacher_id: headTeacherId,
       description: description || null
     });
     return success(res, cls, '班级创建成功', 201);
@@ -102,13 +152,28 @@ exports.createClass = async (req, res, next) => {
 // 更新班级 —— 管理员
 exports.updateClass = async (req, res, next) => {
   try {
-    const { name, grade, teacher_id, description } = req.body;
+    const { name, grade, teacher_id, description, school_id } = req.body;
     const cls = await Class.findByPk(req.params.id);
     if (!cls) return fail(res, '班级不存在', 404);
+
+    const newSchoolId = school_id || cls.school_id;
+    if (school_id && school_id !== cls.school_id) {
+      const school = await School.findByPk(school_id);
+      if (!school) return fail(res, '目标学校不存在', 404);
+    }
+
+    let headTeacherId = teacher_id !== undefined ? teacher_id : cls.teacher_id;
+    if (headTeacherId) {
+      const teacher = await User.findByPk(headTeacherId);
+      if (!teacher || teacher.role !== 'teacher') return fail(res, '指定的班主任无效', 422);
+      if (teacher.school_id !== Number(newSchoolId)) return fail(res, '班主任必须属于该班级所在学校', 422);
+    }
+
     await cls.update({
       name: name || cls.name,
       grade: grade || cls.grade,
-      teacher_id: teacher_id !== undefined ? teacher_id : cls.teacher_id,
+      school_id: newSchoolId,
+      teacher_id: headTeacherId,
       description: description !== undefined ? description : cls.description
     });
     return success(res, cls, '更新成功');
@@ -138,7 +203,7 @@ exports.deleteClass = async (req, res, next) => {
 exports.getClassStudents = async (req, res, next) => {
   try {
     const cls = await Class.findByPk(req.params.id);
-    if (!cls) return fail(res, '班级不存在', 404);
+    if (!cls || foreignSchool(cls, req)) return fail(res, '班级不存在', 404);
     const students = await User.findAll({
       include: [{
         model: Class,
@@ -164,6 +229,8 @@ exports.setStudentPosition = async (req, res, next) => {
     if (!['none', 'monitor', 'commissary'].includes(position)) {
       return fail(res, '职务参数无效（可选：none/monitor/commissary）', 422);
     }
+    const cls = await Class.findByPk(id);
+    if (!cls || foreignSchool(cls, req)) return fail(res, '班级不存在', 404);
     const record = await ClassStudent.findOne({
       where: { class_id: id, student_id: studentId }
     });
@@ -207,33 +274,49 @@ exports.addStudents = async (req, res, next) => {
       return fail(res, '请选择要添加的学生', 422);
     }
     const cls = await Class.findByPk(req.params.id);
-    if (!cls) return fail(res, '班级不存在', 404);
+    if (!cls || foreignSchool(cls, req)) return fail(res, '班级不存在', 404);
 
     const existing = await ClassStudent.findAll({
       where: { class_id: cls.id, student_id: { [Op.in]: student_ids } },
       attributes: ['student_id']
     });
     const existSet = new Set(existing.map(e => e.student_id));
-
-    // 检查学生是否已在其他班级
-    const alreadyInOther = await ClassStudent.findAll({
-      where: { student_id: { [Op.in]: student_ids.filter(id => !existSet.has(id)) } },
-      attributes: ['student_id', 'class_id'],
-      include: [{ model: Class, as: null, attributes: ['name'] }]
-    });
-
-    if (alreadyInOther.length > 0) {
-      const nameList = alreadyInOther.map(r => `学生ID ${r.student_id} 已在其他班级`).join('; ');
-      return fail(res, `部分学生已在其他班级中，一个学生只能加入一个班级`, 422);
-    }
-
     const toAdd = student_ids.filter(id => !existSet.has(id));
+
+    // 学生必须与班级同校
+    if (toAdd.length > 0) {
+      const students = await User.findAll({
+        where: { id: { [Op.in]: toAdd } },
+        attributes: ['id', 'school_id']
+      });
+      const studentMap = new Map(students.map(s => [s.id, s]));
+      const wrongSchool = toAdd.filter(sid => {
+        const s = studentMap.get(sid);
+        return !s || s.school_id !== cls.school_id;
+      });
+      if (wrongSchool.length > 0) {
+        return fail(res, `有 ${wrongSchool.length} 名学生不属于该班级所在学校，无法添加`, 422);
+      }
+
+      // 检查学生是否已在其他班级
+      const alreadyInOther = await ClassStudent.findAll({
+        where: { student_id: { [Op.in]: toAdd } },
+        attributes: ['student_id']
+      });
+      if (alreadyInOther.length > 0) {
+        return fail(res, `有 ${alreadyInOther.length} 名学生已在其他班级中，一个学生只能加入一个班级`, 422);
+      }
+    }
     if (toAdd.length === 0) return fail(res, '所选学生已全部在该班级中', 422);
 
     const records = toAdd.map(sid => ({ class_id: cls.id, student_id: sid }));
     await ClassStudent.bulkCreate(records);
     return success(res, { added: toAdd.length, skipped: existSet.size }, `成功添加 ${toAdd.length} 名学生`);
   } catch (err) {
+    // 唯一索引兜底并发场景（同一学生被并发加入两个班）
+    if (err.name === 'SequelizeUniqueConstraintError') {
+      return fail(res, '有学生刚被加入其他班级，请刷新后重试', 422);
+    }
     next(err);
   }
 };
@@ -255,7 +338,7 @@ exports.joinClass = async (req, res, next) => {
     if (req.user.role !== 'student') return fail(res, '仅学生可加入班级', 403);
     const { id } = req.params;
     const cls = await Class.findByPk(id);
-    if (!cls) return fail(res, '班级不存在', 404);
+    if (!cls || cls.school_id !== req.user.school_id) return fail(res, '班级不存在', 404);
 
     // 检查是否已加入该班级
     const exists = await ClassStudent.findOne({ where: { class_id: id, student_id: req.user.id } });
@@ -270,6 +353,10 @@ exports.joinClass = async (req, res, next) => {
     await ClassStudent.create({ class_id: id, student_id: req.user.id });
     return success(res, null, '加入班级成功');
   } catch (err) {
+    // 唯一索引兜底并发加入班级（双端同时点击绕过先查后插检查）
+    if (err.name === 'SequelizeUniqueConstraintError') {
+      return fail(res, '你已加入班级，一个学生只能加入一个班级', 422);
+    }
     next(err);
   }
 };

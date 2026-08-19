@@ -9,6 +9,9 @@
 
     <div class="card-section">
       <div class="filter-bar">
+        <el-select v-model="schoolFilter" placeholder="全部学校" clearable style="width:180px" @change="loadData">
+          <el-option v-for="s in schools" :key="s.id" :label="s.name" :value="s.id" />
+        </el-select>
         <el-input v-model="keyword" placeholder="搜索班级名称/年级" clearable style="width:240px" @keyup.enter="loadData" @clear="loadData">
           <template #prefix><el-icon><Search /></el-icon></template>
         </el-input>
@@ -17,6 +20,9 @@
 
       <el-table :data="list" stripe>
         <el-table-column label="班级名称" prop="name" min-width="180" />
+        <el-table-column label="学校" width="150">
+          <template #default="{ row }">{{ row.school?.name || '-' }}</template>
+        </el-table-column>
         <el-table-column label="年级" prop="grade" width="120" />
         <el-table-column label="班主任" width="120">
           <template #default="{ row }">{{ row.headTeacher?.real_name || '未指定' }}</template>
@@ -42,6 +48,11 @@
     <!-- 新增/编辑对话框 -->
     <el-dialog v-model="formVisible" :title="editId ? '编辑班级' : '新增班级'" width="500px">
       <el-form :model="form" label-width="90px">
+        <el-form-item label="所属学校" required>
+          <el-select v-model="form.school_id" placeholder="选择学校" filterable style="width:100%" @change="onSchoolChange">
+            <el-option v-for="s in schools" :key="s.id" :label="s.name" :value="s.id" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="班级名称" required>
           <el-input v-model="form.name" placeholder="如：计算机科学与技术1班" />
         </el-form-item>
@@ -115,7 +126,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Search, CaretBottom } from '@element-plus/icons-vue'
-import { classApi, userApi } from '@/api'
+import { classApi, userApi, schoolApi } from '@/api'
 
 // 获取学生在班级中的职务（数据在 classes[0].ClassStudent.position）
 function getPos(row) {
@@ -128,11 +139,13 @@ const page = ref(1)
 const pageSize = 10
 const keyword = ref('')
 const teachers = ref([])
+const schools = ref([])
+const schoolFilter = ref(null)
 
 const formVisible = ref(false)
 const editId = ref(null)
 const saving = ref(false)
-const form = reactive({ name: '', grade: '', teacher_id: null, description: '' })
+const form = reactive({ name: '', grade: '', school_id: null, teacher_id: null, description: '' })
 
 const studentVisible = ref(false)
 const currentClass = ref(null)
@@ -144,32 +157,46 @@ const selectedStudents = ref([])
 const addingStudents = ref(false)
 
 async function loadData() {
-  const res = await classApi.list({ page: page.value, pageSize, keyword: keyword.value })
+  const res = await classApi.list({ page: page.value, pageSize, keyword: keyword.value, school_id: schoolFilter.value || undefined })
   list.value = res.data.list
   total.value = res.data.total
 }
 function handlePage(p) { page.value = p; loadData() }
 
-async function loadTeachers() {
-  const res = await userApi.teachers()
+async function loadTeachers(schoolId) {
+  const res = await userApi.teachers({ school_id: schoolId || undefined })
   teachers.value = res.data
+}
+
+async function loadSchools() {
+  const res = await schoolApi.all()
+  schools.value = res.data
+}
+
+// 对话框内切换学校后，班主任需要重新按学校加载
+function onSchoolChange() {
+  form.teacher_id = null
+  loadTeachers(form.school_id)
 }
 
 function openCreate() {
   editId.value = null
-  form.name = ''; form.grade = ''; form.teacher_id = null; form.description = ''
+  form.name = ''; form.grade = ''; form.school_id = schoolFilter.value; form.teacher_id = null; form.description = ''
+  loadTeachers(form.school_id)
   formVisible.value = true
 }
 
 function openEdit(row) {
   editId.value = row.id
   form.name = row.name; form.grade = row.grade
-  form.teacher_id = row.teacher_id; form.description = row.description || ''
+  form.school_id = row.school_id; form.teacher_id = row.teacher_id; form.description = row.description || ''
+  loadTeachers(form.school_id)
   formVisible.value = true
 }
 
 async function saveClass() {
   if (!form.name || !form.grade) { ElMessage.warning('请填写班级名称和年级'); return }
+  if (!form.school_id) { ElMessage.warning('请选择所属学校'); return }
   saving.value = true
   try {
     if (editId.value) {
@@ -202,7 +229,7 @@ async function viewStudents(row) {
 
 async function openAddStudent() {
   selectedStudents.value = []
-  const res = await userApi.students({ keyword: '' })
+  const res = await userApi.students({ keyword: '', school_id: currentClass.value.school_id })
   allStudents.value = res.data
   addStudentVisible.value = true
 }
@@ -241,7 +268,7 @@ async function setPosition(row, position) {
 }
 
 onMounted(() => {
+  loadSchools()
   loadData()
-  loadTeachers()
 })
 </script>

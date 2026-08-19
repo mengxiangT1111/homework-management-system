@@ -8,6 +8,11 @@
       </div>
 
       <el-form ref="formRef" :model="form" :rules="rules" size="large" @submit.prevent="handleLogin">
+        <el-form-item prop="school_id">
+          <el-select v-model="form.school_id" placeholder="选择学校（管理员不选）" clearable style="width:100%">
+            <el-option v-for="s in schools" :key="s.id" :label="`${s.name}（${s.code}）`" :value="s.id" />
+          </el-select>
+        </el-form-item>
         <el-form-item prop="username">
           <el-input v-model="form.username" placeholder="请输入学号或工号" :prefix-icon="User" />
         </el-form-item>
@@ -30,22 +35,31 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { User, Lock } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
+import { schoolApi } from '@/api'
 
 const router = useRouter()
 const authStore = useAuthStore()
 const formRef = ref()
 const loading = ref(false)
+const schools = ref([])
 
-const form = reactive({ username: '', password: '' })
+const form = reactive({ school_id: null, username: '', password: '' })
 const rules = {
   username: [{ required: true, message: '请输入学号或工号', trigger: 'blur' }],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
 }
+
+onMounted(async () => {
+  try {
+    const res = await schoolApi.all()
+    schools.value = res.data
+  } catch (e) {}
+})
 
 async function handleLogin() {
   await formRef.value.validate(async (valid) => {

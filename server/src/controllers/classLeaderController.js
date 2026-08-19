@@ -6,7 +6,7 @@ const {
   Assignment, Course, Class, User, ClassStudent, Submission, Notification
 } = require('../models');
 const { success, fail } = require('../utils/response');
-const { isOverdue } = require('./assignmentController');
+const { isOverdue, isValidFutureDate } = require('./assignmentController');
 
 // 班级负责人：发布作业（只能发布给自己负责的班级课程）
 exports.createClassAssignment = async (req, res, next) => {
@@ -25,7 +25,7 @@ exports.createClassAssignment = async (req, res, next) => {
       return fail(res, '只能为所在班级的课程发布作业', 403);
     }
 
-    if (new Date(deadline) <= new Date()) {
+    if (!isValidFutureDate(deadline)) {
       return fail(res, '截止时间必须晚于当前时间', 422);
     }
 
@@ -103,6 +103,7 @@ exports.classUnsubmittedStudents = async (req, res, next) => {
       include: [{ model: Course, as: 'course' }]
     });
     if (!assignment) return fail(res, '作业不存在', 404);
+    if (!assignment.course) return fail(res, '作业所属课程已不存在', 422);
     if (assignment.course.class_id !== classId) {
       return fail(res, '该作业不属于你负责的班级', 403);
     }
@@ -157,6 +158,7 @@ exports.classRemindUnsubmitted = async (req, res, next) => {
       include: [{ model: Course, as: 'course' }]
     });
     if (!assignment) return fail(res, '作业不存在', 404);
+    if (!assignment.course) return fail(res, '作业所属课程已不存在', 422);
     if (assignment.course.class_id !== classId) {
       return fail(res, '无权操作该作业', 403);
     }
@@ -203,6 +205,7 @@ exports.classDeleteAssignment = async (req, res, next) => {
       include: [{ model: Course, as: 'course' }]
     });
     if (!assignment) return fail(res, '作业不存在', 404);
+    if (!assignment.course) return fail(res, '作业所属课程已不存在', 422);
     if (assignment.course.class_id !== classId) {
       return fail(res, '该作业不属于你负责的班级', 403);
     }
@@ -226,6 +229,7 @@ exports.classDownloadAll = async (req, res, next) => {
       include: [{ model: Course, as: 'course', include: [{ model: Class, as: 'class' }] }]
     });
     if (!assignment) return fail(res, '作业不存在', 404);
+    if (!assignment.course) return fail(res, '作业所属课程已不存在', 422);
     if (assignment.course.class_id !== classId) {
       return fail(res, '该作业不属于你负责的班级', 403);
     }
@@ -255,16 +259,21 @@ exports.classDownloadAll = async (req, res, next) => {
     archive.on('error', (err) => next(err));
     archive.pipe(res);
 
+    const { ensureLocalFile } = require('../utils/fileStorage').helpers;
+
     for (const sub of submissions) {
       const folderName = `${sub.student.real_name}_${sub.student.username}`;
       for (const file of sub.files) {
-        const abs = path.join(__dirname, '../../', file.file_path);
-        if (fs.existsSync(abs)) {
-          archive.file(abs, { name: `${folderName}/${file.original_name}` });
+        if (file.is_cleaned) continue; // 已清理的文件不再打包
+        try {
+          const abs = await ensureLocalFile(file.file_path);
+          archive.file(abs, { name: `${folderName}/${path.basename(file.original_name)}` });
+        } catch (e) {
+          console.warn('[负责人打包] 文件获取失败，跳过:', file.file_path, e.message);
         }
       }
     }
-    archive.finalize();
+    await archive.finalize();
   } catch (err) {
     next(err);
   }
@@ -279,10 +288,14 @@ exports.classUpdateAssignment = async (req, res, next) => {
       include: [{ model: Course, as: 'course' }]
     });
     if (!assignment) return fail(res, '作业不存在', 404);
+    if (!assignment.course) return fail(res, '作业所属课程已不存在', 422);
     if (assignment.course.class_id !== classId) {
       return fail(res, '该作业不属于你负责的班级', 403);
     }
     const { title, description, deadline, allowed_formats, max_files, max_size_mb, need_grading, sample_files } = req.body;
+    if (deadline !== undefined && deadline !== null && deadline !== '' && !isValidFutureDate(deadline)) {
+      return fail(res, '截止时间格式非法或早于当前时间', 422);
+    }
     await assignment.update({
       title: title !== undefined ? title : assignment.title,
       description: description !== undefined ? description : assignment.description,

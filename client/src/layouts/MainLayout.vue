@@ -80,7 +80,7 @@ import { ElMessageBox } from 'element-plus'
 import { Operation, Close, Bell, CaretBottom, User, SwitchButton } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 import { useNotificationStore } from '@/stores/notification'
-import { classApi } from '@/api'
+import { classApi, courseApi } from '@/api'
 
 const route = useRoute()
 const router = useRouter()
@@ -90,6 +90,7 @@ const notifStore = useNotificationStore()
 const collapsed = ref(false)
 const mobileMenuOpen = ref(false)
 const isClassLeader = ref(false)
+const isCourseAssistant = ref(false)
 let pollTimer = null
 
 const role = computed(() => authStore.role)
@@ -101,12 +102,14 @@ const menuConfig = {
     { path: '/student/assignments', title: '作业列表', icon: 'Document' },
     { path: '/student/submissions', title: '我的提交', icon: 'UploadFilled' },
     { path: '/student/collect', title: '作业收集', icon: 'DataLine', leaderOnly: true },
+    { path: '/student/assistant', title: '课代表', icon: 'Medal', assistantOnly: true },
     { path: '/student/notifications', title: '消息通知', icon: 'Bell' },
     { path: '/student/profile', title: '个人中心', icon: 'User' }
   ],
   teacher: [
     { path: '/teacher/dashboard', title: '仪表盘', icon: 'HomeFilled' },
     { path: '/teacher/assignments', title: '作业管理', icon: 'Document' },
+    { path: '/teacher/plagiarism', title: '查重中心', icon: 'WarningFilled' },
     { path: '/teacher/courses', title: '我的课程', icon: 'Reading' },
     { path: '/teacher/notifications', title: '消息通知', icon: 'Bell' },
     { path: '/teacher/profile', title: '个人中心', icon: 'User' }
@@ -114,6 +117,7 @@ const menuConfig = {
   admin: [
     { path: '/admin/dashboard', title: '数据统计', icon: 'DataAnalysis' },
     { path: '/admin/classes', title: '班级管理', icon: 'School' },
+    { path: '/admin/schools', title: '学校管理', icon: 'OfficeBuilding' },
     { path: '/admin/users', title: '用户管理', icon: 'UserFilled' },
     { path: '/admin/courses', title: '课程管理', icon: 'Reading' },
     { path: '/admin/cleanup', title: '文件清理', icon: 'Delete' },
@@ -124,8 +128,11 @@ const menuConfig = {
 
 const menuItems = computed(() => {
   const items = menuConfig[role.value] || []
-  // 班级负责人专属菜单：非负责人隐藏
-  return items.filter(item => !item.leaderOnly || isClassLeader.value)
+  // 班级负责人/课代表专属菜单：非相应身份隐藏
+  return items.filter(item =>
+    (!item.leaderOnly || isClassLeader.value) &&
+    (!item.assistantOnly || isCourseAssistant.value)
+  )
 })
 
 const greeting = computed(() => {
@@ -169,11 +176,15 @@ onMounted(async () => {
     await authStore.fetchProfile()
   } catch (e) {}
   await notifStore.fetchUnreadCount()
-  // 学生检查是否有班级负责人职务
+  // 学生检查是否有班级负责人职务 / 课代表职务
   if (authStore.role === 'student') {
     try {
       const res = await classApi.myPositions()
       isClassLeader.value = res.data && res.data.length > 0
+    } catch (e) {}
+    try {
+      const res = await courseApi.myAssistantships()
+      isCourseAssistant.value = res.data && res.data.length > 0
     } catch (e) {}
   }
   // 每 60 秒轮询未读通知

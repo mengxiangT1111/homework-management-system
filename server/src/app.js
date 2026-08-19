@@ -9,6 +9,13 @@ const { sequelize } = require('./models');
 
 const app = express();
 
+// 反向代理（nginx）场景下按 X-Forwarded-For 取真实客户端 IP，
+// 否则速率限制会把所有请求算成同一个代理 IP（全局误锁）。
+// 直连部署时不要开启（客户端可伪造该头绕过限流）。
+if (process.env.TRUST_PROXY) {
+  app.set('trust proxy', Number(process.env.TRUST_PROXY) || 1);
+}
+
 // ===== 中间件 =====
 // CORS 配置：生产环境应限制 origin
 const corsOptions = {
@@ -43,8 +50,8 @@ app.get('/uploads/:yearMonth/:filename', (req, res, next) => {
     const resolvedPath = path.resolve(filePath);
     const resolvedUploadDir = path.resolve(uploadDir);
 
-    // 确保文件路径在 uploads 目录内
-    if (!resolvedPath.startsWith(resolvedUploadDir)) {
+    // 确保文件路径在 uploads 目录内（必须带分隔符，防止 uploads-xxx 兄弟目录绕过前缀判断）
+    if (!resolvedPath.startsWith(resolvedUploadDir + path.sep)) {
       return res.status(403).json({ code: 403, success: false, message: '禁止访问', data: null });
     }
 
@@ -69,6 +76,10 @@ app.use('/api/submissions', require('./routes/submissions'));
 app.use('/api/upload', require('./routes/upload'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/stats', require('./routes/stats'));
+app.use('/api/ai', require('./routes/ai'));
+app.use('/api/files', require('./routes/files'));
+app.use('/api/schools', require('./routes/schools'));
+app.use('/api/plagiarism', require('./routes/plagiarism'));
 
 // 健康检查
 app.get('/api/health', (req, res) => {
@@ -90,10 +101,13 @@ app.use((err, req, res, next) => {
   if (err.code === 'LIMIT_FILE_SIZE') {
     return res.status(400).json({ code: 400, success: false, message: '文件大小超出限制', data: null });
   }
+  // 生产环境不回显 5xx 内部错误细节（表名/SQL/绝对路径），避免信息泄露
+  const isProd = process.env.NODE_ENV === 'production';
+  const isInternal = !err.status || err.status >= 500;
   res.status(err.status || 500).json({
     code: err.status || 500,
     success: false,
-    message: err.message || '服务器内部错误',
+    message: isProd && isInternal ? '服务器内部错误' : (err.message || '服务器内部错误'),
     data: null
   });
 });

@@ -24,7 +24,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { Document } from '@element-plus/icons-vue'
-import { downloadFile as dlFile } from '@/api'
+import { fileUrl as resolveUrl } from '@/utils/fileUrl'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -42,14 +42,11 @@ const ext = computed(() => props.fileName.split('.').pop().toLowerCase())
 const isPdf = computed(() => ext.value === 'pdf')
 const isImage = computed(() => ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'].includes(ext.value))
 
-const fileUrl = computed(() => {
-  if (!props.filePath) return ''
-  const token = localStorage.getItem('token')
-  return `/${props.filePath}?token=${token}`
-})
+const fileUrl = computed(() => resolveUrl(props.filePath))
 
 function downloadFile() {
-  dlFile(`/${props.filePath}`, props.fileName)
+  // resolveUrl 已归一化处理 cos://、'/cos://'（历史样例数据）与本地路径（自动带 token）
+  window.open(resolveUrl(props.filePath), '_blank')
 }
 </script>
 

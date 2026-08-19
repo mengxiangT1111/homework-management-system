@@ -9,10 +9,10 @@
 
     <div class="card-section">
       <div class="filter-bar">
-        <el-input v-model="keyword" placeholder="搜索作业标题" clearable style="width:240px" @keyup.enter="loadData" @clear="loadData">
+        <el-input v-model="keyword" placeholder="搜索作业标题" clearable style="width:240px" @keyup.enter="search" @clear="search">
           <template #prefix><el-icon><Search /></el-icon></template>
         </el-input>
-        <el-button type="primary" @click="loadData">搜索</el-button>
+        <el-button type="primary" @click="search">搜索</el-button>
       </div>
 
       <div v-if="list.length === 0" class="empty-box">
@@ -150,6 +150,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Search, Document, Delete, InfoFilled } from '@element-plus/icons-vue'
 import { assignmentApi, submissionApi, downloadFile } from '@/api'
 import { uploadFileChunked } from '@/utils/upload'
+import { toPickerValue } from '@/utils/format'
 
 const list = ref([])
 const total = ref(0)
@@ -178,10 +179,14 @@ async function loadData() {
 }
 function handlePage(p) { page.value = p; loadData() }
 
+// 搜索时重置到第一页，避免停留在超出结果页数的空页
+function search() { page.value = 1; loadData() }
+
 function openEdit(row) {
   editingId.value = row.id
   editForm.title = row.title
-  editForm.deadline = row.deadline
+  // 后端返回 ISO 串，须转为 picker 的 value-format，否则回显为空
+  editForm.deadline = toPickerValue(row.deadline)
   editForm.allowed_formats = row.allowed_formats || ['pdf', 'doc', 'docx', 'jpg', 'png', 'zip']
   editForm.max_files = row.max_files || 5
   editForm.max_size_mb = row.max_size_mb || 100
@@ -218,7 +223,7 @@ async function saveEdit() {
     for (const s of allNew) {
       try {
         const result = await uploadFileChunked(s.file, (p) => {})
-        uploadedSamples.push({ name: s.name, type: s.file.type, url: '/' + result.file_path })
+        uploadedSamples.push({ name: s.name, type: s.file.type, url: result.file_path })
       } catch (e) { ElMessage.warning(`样例文件 ${s.name} 上传失败`) }
     }
     editForm.sample_files = [...(editForm.sample_files || []), ...uploadedSamples]
@@ -243,6 +248,8 @@ async function deleteAssignment(row) {
     await ElMessageBox.confirm(`确定删除作业「${row.title}」？删除后不可恢复。`, '删除确认', { type: 'warning' })
     await assignmentApi.remove(row.id)
     ElMessage.success('已删除')
+    // 删除的是当前页最后一条时回退一页，避免停留在空页
+    if (list.value.length === 1 && page.value > 1) page.value -= 1
     loadData()
   } catch (e) {}
 }

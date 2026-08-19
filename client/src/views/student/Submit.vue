@@ -20,19 +20,25 @@
         <strong>📎 提交样例：</strong>
         <div class="sample-list">
           <div v-for="(s, idx) in assignment.sample_files" :key="idx" class="sample-file-item">
-            <template v-if="s.type && s.type.startsWith('image/')">
-              <a :href="sampleUrl(s.url)" target="_blank">
-                <img :src="sampleUrl(s.url)" :alt="s.name" class="sample-image" />
-              </a>
+            <!-- 图片：点击放大在线预览（支持多图切换/缩放） -->
+            <template v-if="isImageSample(s)">
+              <el-image
+                :src="sampleUrl(s.url)" :alt="s.name" fit="cover" class="sample-image"
+                :preview-src-list="imageSampleUrls" :initial-index="imageSampleIndex(idx)"
+                preview-teleported :hide-on-click-modal="true"
+              />
               <span class="sample-label">{{ s.name }}</span>
             </template>
-            <template v-else-if="s.type && s.type.startsWith('video/')">
+            <!-- 视频：内嵌在线播放 -->
+            <template v-else-if="isVideoSample(s)">
               <video :src="sampleUrl(s.url)" controls class="sample-video"></video>
               <span class="sample-label">{{ s.name }}</span>
             </template>
+            <!-- 文档：点击弹窗预览（PDF 内嵌显示） -->
             <template v-else>
-              <el-icon :size="24"><Document /></el-icon>
-              <a :href="sampleUrl(s.url)" target="_blank" class="sample-link">{{ s.name }}</a>
+              <a href="javascript:void(0)" class="sample-link" @click="previewSample(s)">
+                <el-icon :size="24"><Document /></el-icon> {{ s.name }}
+              </a>
             </template>
           </div>
         </div>
@@ -59,8 +65,11 @@
           <el-icon><Document /></el-icon>
           <span class="file-name">{{ f.original_name }}</span>
           <span class="file-size">{{ formatSize(f.file_size) }}</span>
-          <el-button link type="primary" @click="previewFile(f)">预览</el-button>
-          <el-button link type="primary" @click="downloadF(f)">下载</el-button>
+          <el-tag v-if="f.is_cleaned" type="info" size="small">文件已过期清理</el-tag>
+          <template v-else>
+            <el-button link type="primary" @click="previewFile(f)">预览</el-button>
+            <el-button link type="primary" @click="downloadF(f)">下载</el-button>
+          </template>
         </div>
       </div>
     </div>
@@ -79,7 +88,7 @@
         ref="uploaderRef"
         :allowed-formats="assignment.allowed_formats"
         :max-files="assignment.max_files"
-        :max-size-mb="100"
+        :max-size-mb="assignment.max_size_mb || 100"
         @uploaded="onUploaded"
       />
       <el-button type="primary" size="large" :loading="submitting" :disabled="uploadedFiles.length === 0"
@@ -119,12 +128,30 @@ function formatSize(b) {
   return (b / 1048576).toFixed(2) + ' MB'
 }
 
-// 为样例文件 URL 添加 Token（支持 img/video 预览）
+// 样例文件 URL 解析（兼容 cos:// 与本地路径）
+import { fileUrl as resolveFileUrl, isCOS } from '@/utils/fileUrl'
+import { computed } from 'vue'
+
 function sampleUrl(url) {
-  const token = localStorage.getItem('token')
-  if (!token) return url
-  const separator = url.includes('?') ? '&' : '?'
-  return `${url}${separator}token=${token}`
+  return resolveFileUrl(url)
+}
+
+// 样例类型判断：优先 MIME，扩展名兜底（历史数据可能缺 type）
+function sampleExt(s) { return String(s.url || s.name || '').split('.').pop().toLowerCase() }
+function isImageSample(s) {
+  return (s.type && s.type.startsWith('image/')) || ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'].includes(sampleExt(s))
+}
+function isVideoSample(s) {
+  return (s.type && s.type.startsWith('video/')) || ['mp4', 'webm', 'ogg'].includes(sampleExt(s))
+}
+
+// 图片灯箱预览列表与起始索引
+const imageSampleUrls = computed(() =>
+  (assignment.value.sample_files || []).filter(isImageSample).map(s => sampleUrl(s.url))
+)
+function imageSampleIndex(idx) {
+  const files = assignment.value.sample_files || []
+  return files.slice(0, idx + 1).filter(isImageSample).length - 1
 }
 
 async function loadData() {
@@ -165,11 +192,17 @@ function previewFile(f) {
 }
 
 function downloadF(f) {
-  downloadFile('/' + f.file_path, f.original_name)
+  if (isCOS(f.file_path)) {
+    window.open(resolveFileUrl(f.file_path), '_blank')
+  } else {
+    downloadFile('/' + f.file_path, f.original_name)
+  }
 }
 
 function previewSample(s) {
-  window.open(sampleUrl(s.url), '_blank')
+  previewPath.value = s.url
+  previewName.value = s.name || '样例文件'
+  previewVisible.value = true
 }
 
 onMounted(loadData)
@@ -235,6 +268,10 @@ onMounted(loadData)
   color: var(--primary);
   font-size: 13px;
   text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
 }
 .sample-link:hover {
   text-decoration: underline;

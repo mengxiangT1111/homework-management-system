@@ -10,21 +10,29 @@
 
     <div class="card-section">
       <div class="filter-bar">
-        <el-select v-model="roleFilter" placeholder="角色" clearable style="width:120px" @change="loadData">
+        <el-select v-model="roleFilter" placeholder="角色" clearable style="width:120px" @change="search">
           <el-option label="全部" value="" />
           <el-option label="学生" value="student" />
           <el-option label="教师" value="teacher" />
           <el-option label="管理员" value="admin" />
         </el-select>
-        <el-input v-model="keyword" placeholder="搜索学号/姓名/邮箱" clearable style="width:260px" @keyup.enter="loadData" @clear="loadData">
+        <el-select v-model="statusFilter" placeholder="状态" clearable style="width:140px" @change="search">
+          <el-option label="全部" value="" />
+          <el-option label="启用" :value="1" />
+          <el-option label="待审核/禁用" :value="0" />
+        </el-select>
+        <el-input v-model="keyword" placeholder="搜索学号/姓名/邮箱" clearable style="width:260px" @keyup.enter="search" @clear="search">
           <template #prefix><el-icon><Search /></el-icon></template>
         </el-input>
-        <el-button type="primary" @click="loadData">搜索</el-button>
+        <el-button type="primary" @click="search">搜索</el-button>
       </div>
 
       <el-table :data="list" stripe>
         <el-table-column label="学号" prop="username" width="130" />
         <el-table-column label="姓名" prop="real_name" width="120" />
+        <el-table-column label="学校" width="150">
+          <template #default="{ row }">{{ row.school ? row.school.name : '—' }}</template>
+        </el-table-column>
         <el-table-column label="角色" width="100" align="center">
           <template #default="{ row }">
             <el-tag :type="roleType(row.role)" size="small">{{ roleText(row.role) }}</el-tag>
@@ -32,11 +40,11 @@
         </el-table-column>
         <el-table-column label="邮箱" prop="email" min-width="180" show-overflow-tooltip />
         <el-table-column label="手机" prop="phone" width="130" />
-        <el-table-column label="状态" width="80" align="center">
+        <el-table-column label="状态" width="90" align="center">
           <template #default="{ row }">
-            <el-tag :type="row.status === 1 ? 'success' : 'info'" size="small">
-              {{ row.status === 1 ? '启用' : '禁用' }}
-            </el-tag>
+            <el-tag v-if="row.status === 1" type="success" size="small">启用</el-tag>
+            <el-tag v-else-if="row.role === 'teacher'" type="warning" size="small">待审核</el-tag>
+            <el-tag v-else type="info" size="small">禁用</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="注册时间" width="160">
@@ -46,7 +54,7 @@
           <template #default="{ row }">
             <el-button link type="warning" @click="resetPwd(row)">重置密码</el-button>
             <el-button v-if="row.role !== 'admin'" link :type="row.status === 1 ? 'info' : 'success'" @click="toggleStatus(row)">
-              {{ row.status === 1 ? '禁用' : '启用' }}
+              {{ row.status === 1 ? '禁用' : (row.role === 'teacher' ? '通过审核' : '启用') }}
             </el-button>
             <el-button v-if="row.role !== 'admin'" link type="danger" @click="removeUser(row)">删除</el-button>
           </template>
@@ -62,6 +70,11 @@
     <!-- 新增对话框 -->
     <el-dialog v-model="createVisible" :title="createRole === 'teacher' ? '新增教师账号' : '新增学生账号'" width="480px">
       <el-form :model="createForm" label-width="90px">
+        <el-form-item label="学校" required>
+          <el-select v-model="createForm.school_id" placeholder="选择学校" style="width:100%">
+            <el-option v-for="s in schools" :key="s.id" :label="`${s.name}（${s.code}）`" :value="s.id" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="学号" required>
           <el-input v-model="createForm.username" placeholder="登录账号" />
         </el-form-item>
@@ -100,7 +113,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Search } from '@element-plus/icons-vue'
-import { userApi } from '@/api'
+import { userApi, schoolApi } from '@/api'
 
 const list = ref([])
 const total = ref(0)
@@ -108,11 +121,13 @@ const page = ref(1)
 const pageSize = 10
 const keyword = ref('')
 const roleFilter = ref('')
+const statusFilter = ref('')
 
 const createVisible = ref(false)
 const createRole = ref('teacher')
-const createForm = reactive({ username: '', real_name: '', password: '', email: '', phone: '' })
+const createForm = reactive({ username: '', real_name: '', password: '', email: '', phone: '', school_id: null })
 const saving = ref(false)
+const schools = ref([])
 
 const pwdVisible = ref(false)
 const currentUser = ref(null)
@@ -124,21 +139,27 @@ function roleText(r) { return { student: '学生', teacher: '教师', admin: '�
 function roleType(r) { return { student: 'success', teacher: 'warning', admin: 'danger' }[r] }
 
 async function loadData() {
-  const res = await userApi.list({ page: page.value, pageSize, keyword: keyword.value, role: roleFilter.value })
+  const res = await userApi.list({
+    page: page.value, pageSize,
+    keyword: keyword.value, role: roleFilter.value, status: statusFilter.value
+  })
   list.value = res.data.list
   total.value = res.data.total
 }
 function handlePage(p) { page.value = p; loadData() }
 
+// 搜索/筛选时重置到第一页，避免停留在超出结果页数的空页
+function search() { page.value = 1; loadData() }
+
 function openCreate(role) {
   createRole.value = role
-  Object.assign(createForm, { username: '', real_name: '', password: '', email: '', phone: '' })
+  Object.assign(createForm, { username: '', real_name: '', password: '', email: '', phone: '', school_id: null })
   createVisible.value = true
 }
 
 async function confirmCreate() {
-  if (!createForm.username || !createForm.real_name || !createForm.password) {
-    ElMessage.warning('请填写完整'); return
+  if (!createForm.username || !createForm.real_name || !createForm.password || !createForm.school_id) {
+    ElMessage.warning('请填写完整（含学校）'); return
   }
   saving.value = true
   try {
@@ -159,15 +180,21 @@ function resetPwd(row) {
 async function confirmReset() {
   resetting.value = true
   try {
-    const res = await userApi.resetPassword(currentUser.value.id, { new_password: newPwd.value })
-    ElMessageBox.alert(`新密码为：${res.data.new_password}`, '重置成功', { type: 'success' })
+    await userApi.resetPassword(currentUser.value.id, { new_password: newPwd.value })
+    // 后端出于安全不回传新密码，这里根据是否自定义给出明确提示
+    ElMessageBox.alert(
+      newPwd.value ? `新密码为：${newPwd.value}` : '密码已重置为默认密码 123456，请通知用户尽快登录修改',
+      '重置成功',
+      { type: 'success' }
+    )
     pwdVisible.value = false
   } catch (e) {} finally { resetting.value = false }
 }
 
 async function toggleStatus(row) {
   try {
-    await ElMessageBox.confirm(`确定${row.status === 1 ? '禁用' : '启用'}账号「${row.real_name}」？`, '提示', { type: 'warning' })
+    const action = row.status === 1 ? '禁用' : (row.role === 'teacher' ? '通过审核并启用' : '启用')
+    await ElMessageBox.confirm(`确定${action}账号「${row.real_name}」？`, '提示', { type: 'warning' })
     await userApi.toggleStatus(row.id)
     ElMessage.success('操作成功')
     loadData()
@@ -179,9 +206,17 @@ async function removeUser(row) {
     await ElMessageBox.confirm(`确定删除用户「${row.real_name}」？此操作不可恢复`, '危险操作', { type: 'error' })
     await userApi.remove(row.id)
     ElMessage.success('已删除')
+    // 删除的是当前页最后一条时回退一页，避免停留在空页
+    if (list.value.length === 1 && page.value > 1) page.value -= 1
     loadData()
   } catch (e) {}
 }
 
-onMounted(loadData)
+onMounted(async () => {
+  loadData()
+  try {
+    const res = await schoolApi.all()
+    schools.value = res.data
+  } catch (e) {}
+})
 </script>

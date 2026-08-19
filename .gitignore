@@ -37,3 +37,10 @@ logs/
 *.tmp
 *.temp
 .cache/
+
+# 本地 AI 辅助规划文件（不随仓库发布）
+.zcode/
+
+# 大创申请书等个人文档与生成脚本（含个人信息，仅保留在本地）
+server/outputs/
+server/generate_proposal.js

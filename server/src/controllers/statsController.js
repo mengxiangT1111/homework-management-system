@@ -1,8 +1,8 @@
 const { Op } = require('sequelize');
 const {
-  User, Class, ClassStudent, Course, Assignment, Submission, SubmissionFile
+  sequelize, User, Class, ClassStudent, Course, Assignment, Submission, SubmissionFile
 } = require('../models');
-const { success } = require('../utils/response');
+const { success, fail } = require('../utils/response');
 
 // 管理员全局统计概览
 exports.overview = async (req, res, next) => {
@@ -15,18 +15,33 @@ exports.overview = async (req, res, next) => {
     const assignmentCount = await Assignment.count();
     const submissionCount = await Submission.count();
 
-    // 全局未交人数统计：对每个 active 作业，班级人数 - 已提交人数
-    const activeAssignments = await Assignment.findAll({
+    // 全局未交人数统计：聚合查询替代逐作业两次 count（避免 N+1）
+    const activeAssignments = (await Assignment.findAll({
       where: { status: 'active' },
       include: [{ model: Course, as: 'course' }]
-    });
+    })).filter(a => a.course);
     let totalShouldSubmit = 0;
     let totalSubmitted = 0;
-    for (const a of activeAssignments) {
-      const classSize = await ClassStudent.count({ where: { class_id: a.course.class_id } });
-      const subCnt = await Submission.count({ where: { assignment_id: a.id } });
-      totalShouldSubmit += classSize;
-      totalSubmitted += subCnt;
+    if (activeAssignments.length > 0) {
+      const classIds = [...new Set(activeAssignments.map(a => a.course.class_id))];
+      const [classCounts, subCounts] = await Promise.all([
+        ClassStudent.findAll({
+          where: { class_id: { [Op.in]: classIds } },
+          attributes: ['class_id', [sequelize.fn('COUNT', sequelize.col('id')), 'cnt']],
+          group: 'class_id'
+        }),
+        Submission.findAll({
+          where: { assignment_id: { [Op.in]: activeAssignments.map(a => a.id) } },
+          attributes: ['assignment_id', [sequelize.fn('COUNT', sequelize.col('id')), 'cnt']],
+          group: 'assignment_id'
+        })
+      ]);
+      const classSizeMap = new Map(classCounts.map(c => [c.class_id, Number(c.get('cnt'))]));
+      const subCountMap = new Map(subCounts.map(s => [s.assignment_id, Number(s.get('cnt'))]));
+      for (const a of activeAssignments) {
+        totalShouldSubmit += classSizeMap.get(a.course.class_id) || 0;
+        totalSubmitted += subCountMap.get(a.id) || 0;
+      }
     }
     const submitRate = totalShouldSubmit > 0
       ? ((totalSubmitted / totalShouldSubmit) * 100).toFixed(1)
@@ -59,21 +74,40 @@ exports.assignmentSubmitRates = async (req, res, next) => {
       limit: 10
     });
 
+    // 聚合查询替代逐作业两次 count（避免 N+1），并容忍课程被删的悬挂作业
+    const validAssignments = assignments.filter(a => a.course);
     const result = [];
-    for (const a of assignments) {
-      const classSize = await ClassStudent.count({ where: { class_id: a.course.class_id } });
-      const subCnt = await Submission.count({ where: { assignment_id: a.id } });
-      const rate = classSize > 0 ? Math.round((subCnt / classSize) * 100) : 0;
-      result.push({
-        id: a.id,
-        title: a.title,
-        class_name: a.course.class ? a.course.class.name : '-',
-        deadline: a.deadline,
-        total: classSize,
-        submitted: subCnt,
-        unsubmitted: classSize - subCnt,
-        rate
-      });
+    if (validAssignments.length > 0) {
+      const classIds = [...new Set(validAssignments.map(a => a.course.class_id))];
+      const [classCounts, subCounts] = await Promise.all([
+        ClassStudent.findAll({
+          where: { class_id: { [Op.in]: classIds } },
+          attributes: ['class_id', [sequelize.fn('COUNT', sequelize.col('id')), 'cnt']],
+          group: 'class_id'
+        }),
+        Submission.findAll({
+          where: { assignment_id: { [Op.in]: validAssignments.map(a => a.id) } },
+          attributes: ['assignment_id', [sequelize.fn('COUNT', sequelize.col('id')), 'cnt']],
+          group: 'assignment_id'
+        })
+      ]);
+      const classSizeMap = new Map(classCounts.map(c => [c.class_id, Number(c.get('cnt'))]));
+      const subCountMap = new Map(subCounts.map(s => [s.assignment_id, Number(s.get('cnt'))]));
+      for (const a of validAssignments) {
+        const classSize = classSizeMap.get(a.course.class_id) || 0;
+        const subCnt = subCountMap.get(a.id) || 0;
+        const rate = classSize > 0 ? Math.round((subCnt / classSize) * 100) : 0;
+        result.push({
+          id: a.id,
+          title: a.title,
+          class_name: a.course.class ? a.course.class.name : '-',
+          deadline: a.deadline,
+          total: classSize,
+          submitted: subCnt,
+          unsubmitted: classSize - subCnt,
+          rate
+        });
+      }
     }
     return success(res, result, '获取成功');
   } catch (err) {
@@ -85,6 +119,8 @@ exports.assignmentSubmitRates = async (req, res, next) => {
 exports.teacherOverview = async (req, res, next) => {
   try {
     const userId = req.user.role === 'teacher' ? req.user.id : req.query.teacher_id;
+    // 管理员未指定 teacher_id 时不做全表统计，避免口径错乱
+    if (!userId) return fail(res, '缺少 teacher_id 参数', 422);
     const courseCount = await Course.count({ where: { teacher_id: userId } });
     const assignmentCount = await Assignment.count({ where: { teacher_id: userId } });
 

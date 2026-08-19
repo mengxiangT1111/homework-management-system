@@ -19,6 +19,7 @@ const routes = [
       { path: 'assignments/:id', name: 'StudentSubmit', component: () => import('@/views/student/Submit.vue') },
       { path: 'submissions', name: 'StudentSubmissions', component: () => import('@/views/student/Submissions.vue') },
       { path: 'collect', name: 'StudentCollect', component: () => import('@/views/student/Collect.vue') },
+      { path: 'assistant', name: 'StudentAssistant', component: () => import('@/views/student/AssistantCollect.vue') },
       { path: 'notifications', name: 'StudentNotifications', component: () => import('@/views/Notifications.vue') },
       { path: 'profile', name: 'StudentProfile', component: () => import('@/views/Profile.vue') }
     ]
@@ -35,6 +36,7 @@ const routes = [
       { path: 'assignments', name: 'TeacherAssignments', component: () => import('@/views/teacher/Assignments.vue') },
       { path: 'assignments/create', name: 'TeacherCreateAssignment', component: () => import('@/views/teacher/CreateAssignment.vue') },
       { path: 'assignments/:id/review', name: 'TeacherReview', component: () => import('@/views/teacher/Review.vue') },
+      { path: 'plagiarism', name: 'TeacherPlagiarism', component: () => import('@/views/teacher/PlagiarismCenter.vue') },
       { path: 'courses', name: 'TeacherCourses', component: () => import('@/views/teacher/Courses.vue') },
       { path: 'notifications', name: 'TeacherNotifications', component: () => import('@/views/Notifications.vue') },
       { path: 'profile', name: 'TeacherProfile', component: () => import('@/views/Profile.vue') }
@@ -50,6 +52,7 @@ const routes = [
       { path: '', redirect: '/admin/dashboard' },
       { path: 'dashboard', name: 'AdminDashboard', component: () => import('@/views/admin/Dashboard.vue') },
       { path: 'classes', name: 'AdminClasses', component: () => import('@/views/admin/Classes.vue') },
+      { path: 'schools', name: 'AdminSchools', component: () => import('@/views/admin/Schools.vue') },
       { path: 'users', name: 'AdminUsers', component: () => import('@/views/admin/Users.vue') },
       { path: 'courses', name: 'AdminCourses', component: () => import('@/views/admin/Courses.vue') },
       { path: 'cleanup', name: 'AdminCleanup', component: () => import('@/views/admin/Cleanup.vue') },

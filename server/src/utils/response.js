@@ -34,4 +34,12 @@ function paginate(res, rows, count, page, pageSize) {
   });
 }
 
-module.exports = { success, fail, paginate };
+// 统一规范化分页参数：page>=1，1<=pageSize<=100，
+// 防止 pageSize=abc（NaN 崩溃）、pageSize=100000（一次拉全表）、page=0/负数（非法 offset）
+function normalizePage(query = {}) {
+  const page = Math.max(1, parseInt(query.page, 10) || 1);
+  const pageSize = Math.min(100, Math.max(1, parseInt(query.pageSize, 10) || 10));
+  return { page, pageSize };
+}
+
+module.exports = { success, fail, paginate, normalizePage };

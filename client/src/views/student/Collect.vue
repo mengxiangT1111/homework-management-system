@@ -271,6 +271,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Document, Clock, Plus, Delete, InfoFilled } from '@element-plus/icons-vue'
 import { classApi, courseApi, downloadFile } from '@/api'
 import { uploadFileChunked } from '@/utils/upload'
+import { toPickerValue } from '@/utils/format'
 
 const positions = ref([])
 const currentClassId = ref(null)
@@ -382,7 +383,7 @@ async function submitCreate() {
     for (const s of allSamples) {
       try {
         const result = await uploadFileChunked(s.file, (p) => {})
-        uploadedSamples.push({ name: s.name, type: s.file.type, url: '/' + result.file_path })
+        uploadedSamples.push({ name: s.name, type: s.file.type, url: result.file_path })
       } catch (e) {
         ElMessage.warning(`样例文件 ${s.name} 上传失败，已跳过`)
       }
@@ -424,7 +425,8 @@ const editSampleTab = ref('image')
 function openEdit(a) {
   editingAssignment.value = a
   editForm.title = a.title
-  editForm.deadline = a.deadline
+  // 后端返回 ISO 串，须转为 picker 的 value-format，否则回显为空
+  editForm.deadline = toPickerValue(a.deadline)
   editForm.allowed_formats = a.allowed_formats || ['pdf', 'docx', 'jpg', 'zip']
   editForm.max_files = a.max_files || 5
   editForm.max_size_mb = a.max_size_mb || 100
@@ -461,7 +463,7 @@ async function saveEdit() {
     for (const s of allNew) {
       try {
         const result = await uploadFileChunked(s.file, (p) => {})
-        uploadedSamples.push({ name: s.name, type: s.file.type, url: '/' + result.file_path })
+        uploadedSamples.push({ name: s.name, type: s.file.type, url: result.file_path })
       } catch (e) { ElMessage.warning(`样例文件 ${s.name} 上传失败`) }
     }
     // 合并原有样例和新样例

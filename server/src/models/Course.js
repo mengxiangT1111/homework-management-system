@@ -12,6 +12,11 @@ const Course = sequelize.define('Course', {
     allowNull: false,
     comment: '课程名称'
   },
+  school_id: {
+    type: DataTypes.INTEGER.UNSIGNED,
+    allowNull: true,
+    comment: '所属学校ID（与所属班级一致）'
+  },
   class_id: {
     type: DataTypes.INTEGER.UNSIGNED,
     allowNull: false,

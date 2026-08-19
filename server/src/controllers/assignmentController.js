@@ -1,18 +1,26 @@
 const { Op } = require('sequelize');
 const {
-  Assignment, Course, User, Class, Submission, SubmissionFile, ClassStudent
+  sequelize, Assignment, Course, User, Class, Submission, SubmissionFile, ClassStudent
 } = require('../models');
-const { success, fail, paginate } = require('../utils/response');
+const { success, fail, paginate, normalizePage } = require('../utils/response');
 
 // 判断作业是否逾期
 function isOverdue(assignment) {
   return new Date() > new Date(assignment.deadline);
 }
 
+// 校验截止时间：必须存在、可解析且晚于当前时间（new Date('乱填') 为 Invalid Date，
+// InvalidDate <= now 结果为 false，会绕过原本的比较校验，故先判 isNaN）
+function isValidFutureDate(deadline) {
+  const d = new Date(deadline);
+  return !!deadline && !isNaN(d.getTime()) && d > new Date();
+}
+
 // 作业列表
 exports.listAssignments = async (req, res, next) => {
   try {
-    const { page = 1, pageSize = 10, keyword, course_id, status } = req.query;
+    const { keyword, course_id, status } = req.query;
+    const { page, pageSize } = normalizePage(req.query);
     const where = {};
     if (course_id) where.course_id = course_id;
     if (status) where.status = status;
@@ -50,27 +58,40 @@ exports.listAssignments = async (req, res, next) => {
         { model: User, as: 'teacher', attributes: ['id', 'real_name'] }
       ],
       order: [['deadline', 'DESC']],
-      limit: Number(pageSize),
-      offset: (Number(page) - 1) * Number(pageSize),
+      limit: pageSize,
+      offset: (page - 1) * pageSize,
       distinct: true
     });
 
-    // 附加状态计算（是否逾期、是否已提交）
-    const result = [];
-    for (const a of rows) {
+    // 附加状态计算（是否逾期、是否已提交）—— 一到两次聚合查询替代逐行查询，避免 N+1
+    const rowIds = rows.map(a => a.id);
+    let mySubMap = new Map();
+    let subCountMap = new Map();
+    if (rowIds.length > 0) {
+      if (req.user.role === 'student') {
+        const mySubs = await Submission.findAll({
+          where: { assignment_id: { [Op.in]: rowIds }, student_id: req.user.id }
+        });
+        mySubMap = new Map(mySubs.map(s => [s.assignment_id, s]));
+      } else if (req.user.role === 'teacher') {
+        const counts = await Submission.findAll({
+          where: { assignment_id: { [Op.in]: rowIds } },
+          attributes: ['assignment_id', [sequelize.fn('COUNT', sequelize.col('id')), 'cnt']],
+          group: 'assignment_id'
+        });
+        subCountMap = new Map(counts.map(c => [c.assignment_id, Number(c.get('cnt'))]));
+      }
+    }
+    const result = rows.map(a => {
       const item = a.toJSON();
       item.is_overdue = isOverdue(a);
       if (req.user.role === 'student') {
-        const sub = await Submission.findOne({
-          where: { assignment_id: a.id, student_id: req.user.id }
-        });
-        item.my_submission = sub;
+        item.my_submission = mySubMap.get(a.id) || null;
       } else if (req.user.role === 'teacher') {
-        const submitCount = await Submission.count({ where: { assignment_id: a.id } });
-        item.submit_count = submitCount;
+        item.submit_count = subCountMap.get(a.id) || 0;
       }
-      result.push(item);
-    }
+      return item;
+    });
     return paginate(res, result, count, page, pageSize);
   } catch (err) {
     next(err);
@@ -120,7 +141,7 @@ exports.createAssignment = async (req, res, next) => {
     if (req.user.role === 'teacher' && course.teacher_id !== req.user.id) {
       return fail(res, '只能在自己任课的课程下创建作业', 403);
     }
-    if (new Date(deadline) <= new Date()) {
+    if (!isValidFutureDate(deadline)) {
       return fail(res, '截止时间必须晚于当前时间', 422);
     }
 
@@ -154,6 +175,12 @@ exports.updateAssignment = async (req, res, next) => {
       return fail(res, '只能修改自己发布的作业', 403);
     }
     const { title, description, deadline, allowed_formats, max_files, max_size_mb, status, need_grading, sample_files } = req.body;
+    if (deadline !== undefined && deadline !== null && deadline !== '' && !isValidFutureDate(deadline)) {
+      return fail(res, '截止时间格式非法或早于当前时间', 422);
+    }
+    if (status !== undefined && status !== null && status !== '' && !['active', 'closed'].includes(status)) {
+      return fail(res, '作业状态参数非法', 422);
+    }
     await assignment.update({
       title: title !== undefined ? title : assignment.title,
       description: description !== undefined ? description : assignment.description,
@@ -201,6 +228,7 @@ exports.listAssignmentSubmissions = async (req, res, next) => {
       include: [{ model: Course, as: 'course', include: [{ model: Class, as: 'class' }] }]
     });
     if (!assignment) return fail(res, '作业不存在', 404);
+    if (!assignment.course) return fail(res, '作业所属课程已不存在', 422);
     if (req.user.role === 'teacher' && assignment.teacher_id !== req.user.id) {
       return fail(res, '无权查看该作业', 403);
     }
@@ -246,7 +274,9 @@ exports.listAssignmentSubmissions = async (req, res, next) => {
         deadline: assignment.deadline,
         is_overdue: isOverdue(assignment),
         allowed_formats: assignment.allowed_formats,
-        max_files: assignment.max_files
+        max_files: assignment.max_files,
+        course_name: assignment.course.name,
+        class_name: assignment.course.class ? assignment.course.class.name : ''
       },
       students: result,
       total_students: result.length,
@@ -266,6 +296,7 @@ exports.getUnsubmittedList = async (req, res, next) => {
       include: [{ model: Course, as: 'course', include: [{ model: Class, as: 'class' }] }]
     });
     if (!assignment) return fail(res, '作业不存在', 404);
+    if (!assignment.course) return fail(res, '作业所属课程已不存在', 422);
     if (req.user.role === 'teacher' && assignment.teacher_id !== req.user.id) {
       return fail(res, '无权操作', 403);
     }
@@ -312,3 +343,4 @@ exports.getUnsubmittedList = async (req, res, next) => {
 };
 
 module.exports.isOverdue = isOverdue;
+module.exports.isValidFutureDate = isValidFutureDate;

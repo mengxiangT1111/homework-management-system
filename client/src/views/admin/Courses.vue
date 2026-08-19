@@ -9,6 +9,9 @@
 
     <div class="card-section">
       <div class="filter-bar">
+        <el-select v-model="schoolFilter" placeholder="全部学校" clearable style="width:180px" @change="loadData">
+          <el-option v-for="s in schools" :key="s.id" :label="s.name" :value="s.id" />
+        </el-select>
         <el-select v-model="classFilter" placeholder="按班级筛选" clearable style="width:180px" @change="loadData">
           <el-option v-for="c in classes" :key="c.id" :label="c.name" :value="c.id" />
         </el-select>
@@ -20,6 +23,9 @@
 
       <el-table :data="list" stripe>
         <el-table-column label="课程名" prop="name" min-width="150" />
+        <el-table-column label="学校" width="150">
+          <template #default="{ row }">{{ row.school?.name || '-' }}</template>
+        </el-table-column>
         <el-table-column label="班级" min-width="150">
           <template #default="{ row }">
             <div>{{ row.class?.name }}</div>
@@ -51,14 +57,19 @@
         <el-form-item label="课程名" required>
           <el-input v-model="form.name" placeholder="如：高等数学" />
         </el-form-item>
+        <el-form-item label="所属学校" required>
+          <el-select v-model="form.school_id" placeholder="选择学校" filterable style="width:100%" @change="onSchoolChange">
+            <el-option v-for="s in schools" :key="s.id" :label="s.name" :value="s.id" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="所属班级" required>
-          <el-select v-model="form.class_id" placeholder="选择班级" filterable style="width:100%">
-            <el-option v-for="c in classes" :key="c.id" :label="`${c.grade} - ${c.name}`" :value="c.id" />
+          <el-select v-model="form.class_id" placeholder="选择班级" filterable style="width:100%" :disabled="!form.school_id">
+            <el-option v-for="c in formClasses" :key="c.id" :label="`${c.grade} - ${c.name}`" :value="c.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="任课教师" required>
-          <el-select v-model="form.teacher_id" placeholder="选择教师" filterable style="width:100%">
-            <el-option v-for="t in teachers" :key="t.id" :label="t.real_name" :value="t.id" />
+          <el-select v-model="form.teacher_id" placeholder="选择教师" filterable style="width:100%" :disabled="!form.school_id">
+            <el-option v-for="t in formTeachers" :key="t.id" :label="t.real_name" :value="t.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="学期">
@@ -77,10 +88,10 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Search } from '@element-plus/icons-vue'
-import { courseApi, classApi, userApi } from '@/api'
+import { courseApi, classApi, userApi, schoolApi } from '@/api'
 
 const list = ref([])
 const total = ref(0)
@@ -90,33 +101,44 @@ const keyword = ref('')
 const classFilter = ref('')
 const classes = ref([])
 const teachers = ref([])
+const schools = ref([])
+const schoolFilter = ref(null)
+
+// 对话框内的班级/教师选项跟随所选学校
+const formClasses = computed(() => classes.value.filter(c => c.school_id === form.school_id))
+const formTeachers = computed(() => teachers.value.filter(t => t.school_id === form.school_id))
 
 const formVisible = ref(false)
 const editId = ref(null)
 const saving = ref(false)
-const form = reactive({ name: '', class_id: null, teacher_id: null, semester: '', description: '' })
+const form = reactive({ name: '', school_id: null, class_id: null, teacher_id: null, semester: '', description: '' })
 
 async function loadData() {
-  const res = await courseApi.list({ page: page.value, pageSize, keyword: keyword.value, class_id: classFilter.value })
+  const res = await courseApi.list({ page: page.value, pageSize, keyword: keyword.value, class_id: classFilter.value, school_id: schoolFilter.value || undefined })
   list.value = res.data.list
   total.value = res.data.total
 }
 function handlePage(p) { page.value = p; loadData() }
 
+function onSchoolChange() {
+  form.class_id = null
+  form.teacher_id = null
+}
+
 function openCreate() {
   editId.value = null
-  Object.assign(form, { name: '', class_id: null, teacher_id: null, semester: '', description: '' })
+  Object.assign(form, { name: '', school_id: schoolFilter.value, class_id: null, teacher_id: null, semester: '', description: '' })
   formVisible.value = true
 }
 
 function openEdit(row) {
   editId.value = row.id
-  Object.assign(form, { name: row.name, class_id: row.class_id, teacher_id: row.teacher_id, semester: row.semester || '', description: row.description || '' })
+  Object.assign(form, { name: row.name, school_id: row.school_id, class_id: row.class_id, teacher_id: row.teacher_id, semester: row.semester || '', description: row.description || '' })
   formVisible.value = true
 }
 
 async function save() {
-  if (!form.name || !form.class_id || !form.teacher_id) { ElMessage.warning('请填写完整'); return }
+  if (!form.name || !form.school_id || !form.class_id || !form.teacher_id) { ElMessage.warning('请填写完整（含所属学校）'); return }
   saving.value = true
   try {
     if (editId.value) {
@@ -142,8 +164,9 @@ async function removeCourse(row) {
 
 onMounted(async () => {
   loadData()
-  const [c, t] = await Promise.all([classApi.all(), userApi.teachers()])
+  const [c, t, s] = await Promise.all([classApi.all(), userApi.teachers(), schoolApi.all()])
   classes.value = c.data
   teachers.value = t.data
+  schools.value = s.data
 })
 </script>

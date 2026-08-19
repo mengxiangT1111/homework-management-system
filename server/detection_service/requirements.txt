@@ -1,0 +1,12 @@
+fastapi==0.104.1
+uvicorn==0.24.0
+opencv-python-headless==4.8.1.78
+numpy==1.24.3
+networkx==3.1
+scikit-image==0.21.0
+imagehash==4.3.1
+Pillow==10.1.0
+python-multipart==0.0.6
+# PaddleOCR and PaddlePaddle are optional - comment out if not needed
+# paddlepaddle==2.6.0
+# paddleocr==2.7.0

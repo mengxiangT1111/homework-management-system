@@ -4,10 +4,10 @@ const rateLimit = require('express-rate-limit');
 const authController = require('../controllers/authController');
 const { auth } = require('../middleware/auth');
 
-// 登录速率限制：15分钟内最多5次失败尝试
+// 登录速率限制：15分钟内同一 IP 最多 10 次登录尝试（含成功，按 IP 计数）
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15分钟
-  max: 5, // 最多5次
+  max: 10, // 最多10次
   message: {
     code: 429,
     success: false,

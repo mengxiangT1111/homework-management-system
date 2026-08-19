@@ -26,7 +26,11 @@ const ClassStudent = sequelize.define('ClassStudent', {
 }, {
   tableName: 'class_students',
   indexes: [
-    { unique: true, fields: ['class_id', 'student_id'] }
+    { unique: true, fields: ['class_id', 'student_id'] },
+    // 业务规则"一个学生只能加入一个班级"，数据库层兜底并发加入；
+    // 注意：已存在的表需手动执行
+    //   ALTER TABLE class_students ADD UNIQUE KEY uniq_student_one_class (student_id);
+    { unique: true, name: 'uniq_student_one_class', fields: ['student_id'] }
   ]
 });
 

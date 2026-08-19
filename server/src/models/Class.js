@@ -12,6 +12,11 @@ const Class = sequelize.define('Class', {
     allowNull: false,
     comment: '班级名称，如 计算机科学与技术1班'
   },
+  school_id: {
+    type: DataTypes.INTEGER.UNSIGNED,
+    allowNull: true,
+    comment: '所属学校ID'
+  },
   grade: {
     type: DataTypes.STRING(20),
     allowNull: false,

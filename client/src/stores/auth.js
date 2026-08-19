@@ -4,7 +4,15 @@ import { authApi } from '@/api'
 export const useAuthStore = defineStore('auth', {
   state: () => ({
     token: localStorage.getItem('token') || '',
-    user: JSON.parse(localStorage.getItem('user') || 'null')
+    // localStorage 数据损坏时 JSON.parse 会抛错导致应用白屏，兜底返回 null
+    user: (() => {
+      try {
+        return JSON.parse(localStorage.getItem('user') || 'null')
+      } catch (e) {
+        localStorage.removeItem('user')
+        return null
+      }
+    })()
   }),
   getters: {
     isLoggedIn: (state) => !!state.token,
@@ -22,6 +30,8 @@ export const useAuthStore = defineStore('auth', {
     },
     async register(data) {
       const res = await authApi.register(data)
+      // 教师注册待审核：后端不返回 token，不建立登录态
+      if (!res.data?.token) return res.data
       this.token = res.data.token
       this.user = res.data.user
       localStorage.setItem('token', res.data.token)

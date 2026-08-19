@@ -18,23 +18,98 @@
             <p class="course-meta">年级：{{ c.class?.grade || '-' }}</p>
             <p v-if="c.semester" class="course-meta">学期：{{ c.semester }}</p>
             <p v-if="c.description" class="course-desc">{{ c.description }}</p>
+            <p v-if="c.assistants && c.assistants.length > 0" class="course-meta" style="margin-top:8px">
+              课代表：<el-tag v-for="a in c.assistants" :key="a.id" size="small" type="warning" style="margin-right:4px">{{ a.real_name }}</el-tag>
+            </p>
+            <el-button type="primary" plain size="small" style="margin-top:12px" @click="openAssistants(c)">
+              设置课代表
+            </el-button>
           </div>
         </el-col>
       </el-row>
     </div>
+
+    <!-- 课代表管理对话框 -->
+    <el-dialog v-model="assistantVisible" :title="`课代表管理 - ${currentCourse?.name || ''}`" width="600px">
+      <el-alert type="info" :closable="false" style="margin-bottom:16px">
+        课代表可协助你收集本课程作业：查看提交进度、催交未交同学、打包下载提交文件、发布/编辑作业。
+      </el-alert>
+      <div v-if="assistants.length > 0" style="margin-bottom:16px">
+        <h4 style="margin:0 0 8px">当前课代表</h4>
+        <el-tag
+          v-for="a in assistants" :key="a.id" closable type="warning" size="large"
+          style="margin-right:8px;margin-bottom:8px" @close="removeAssistant(a)"
+        >{{ a.real_name }}（{{ a.username }}）</el-tag>
+      </div>
+      <div v-else style="margin-bottom:16px;color:var(--text-light)">尚未设置课代表</div>
+      <h4 style="margin:0 0 8px">从本班学生中设置</h4>
+      <el-select v-model="selectedStudent" filterable placeholder="搜索并选择学生" style="width:100%">
+        <el-option
+          v-for="s in classStudents.filter(s => !assistants.some(a => a.id === s.id))"
+          :key="s.id" :label="`${s.real_name}（${s.username}）`" :value="s.id"
+        />
+      </el-select>
+      <template #footer>
+        <el-button @click="assistantVisible = false">关闭</el-button>
+        <el-button type="primary" :disabled="!selectedStudent" :loading="addingAssistant" @click="addAssistant">设为课代表</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
 import { Reading } from '@element-plus/icons-vue'
-import { courseApi } from '@/api'
+import { courseApi, classApi } from '@/api'
 
 const courses = ref([])
 
 async function loadData() {
   const res = await courseApi.myTeaching()
   courses.value = res.data
+}
+
+// 课代表管理
+const assistantVisible = ref(false)
+const currentCourse = ref(null)
+const assistants = ref([])
+const classStudents = ref([])
+const selectedStudent = ref(null)
+const addingAssistant = ref(false)
+
+async function openAssistants(c) {
+  currentCourse.value = c
+  selectedStudent.value = null
+  assistantVisible.value = true
+  const [a, s] = await Promise.all([
+    courseApi.assistants(c.id),
+    classApi.students(c.class_id)
+  ])
+  assistants.value = a.data
+  classStudents.value = s.data.students
+}
+
+async function addAssistant() {
+  if (!selectedStudent.value) return
+  addingAssistant.value = true
+  try {
+    const res = await courseApi.addAssistant(currentCourse.value.id, selectedStudent.value)
+    ElMessage.success(res.message)
+    selectedStudent.value = null
+    const a = await courseApi.assistants(currentCourse.value.id)
+    assistants.value = a.data
+    loadData()
+  } catch (e) {} finally { addingAssistant.value = false }
+}
+
+async function removeAssistant(a) {
+  try {
+    const res = await courseApi.removeAssistant(currentCourse.value.id, a.id)
+    ElMessage.success(res.message)
+    assistants.value = assistants.value.filter(x => x.id !== a.id)
+    loadData()
+  } catch (e) {}
 }
 
 onMounted(loadData)

@@ -8,6 +8,11 @@
       </div>
 
       <el-form ref="formRef" :model="form" :rules="rules" size="large" @submit.prevent="handleRegister">
+        <el-form-item prop="school_id">
+          <el-select v-model="form.school_id" placeholder="请选择学校" style="width:100%">
+            <el-option v-for="s in schools" :key="s.id" :label="`${s.name}（${s.code}）`" :value="s.id" />
+          </el-select>
+        </el-form-item>
         <el-form-item prop="username">
           <el-input v-model="form.username" :placeholder="form.role === 'teacher' ? '工号（3-50字符）' : '学号（3-50字符）'" :prefix-icon="User" />
         </el-form-item>
@@ -44,19 +49,21 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { User, Lock, Postcard, Message } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
+import { schoolApi } from '@/api'
 
 const router = useRouter()
 const authStore = useAuthStore()
 const formRef = ref()
 const loading = ref(false)
+const schools = ref([])
 
 const form = reactive({
-  username: '', real_name: '', password: '', confirmPassword: '',
+  school_id: null, username: '', real_name: '', password: '', confirmPassword: '',
   role: 'student', email: ''
 })
 
@@ -66,6 +73,7 @@ const validatePass2 = (rule, value, callback) => {
 }
 
 const rules = {
+  school_id: [{ required: true, message: '请选择学校', trigger: 'change' }],
   username: [
     { required: true, message: '请输入学号或工号', trigger: 'blur' },
     { min: 3, max: 50, message: '长度 3-50 字符', trigger: 'blur' }
@@ -88,12 +96,18 @@ async function handleRegister() {
     loading.value = true
     try {
       const data = await authStore.register({
+        school_id: form.school_id,
         username: form.username,
         real_name: form.real_name,
         password: form.password,
         role: form.role,
         email: form.email
       })
+      if (data.pending_review) {
+        ElMessage.success('注册成功！教师账号需管理员审核通过后才能登录')
+        router.push('/login')
+        return
+      }
       ElMessage.success('注册成功')
       router.push(`/${data.user.role}`)
     } catch (e) {} finally {
@@ -101,6 +115,13 @@ async function handleRegister() {
     }
   })
 }
+
+onMounted(async () => {
+  try {
+    const res = await schoolApi.all()
+    schools.value = res.data
+  } catch (e) {}
+})
 </script>
 
 <style scoped>

@@ -34,6 +34,7 @@ router.get('/cleanup/preview', requireRole('admin'), async (req, res, next) => {
     let fileCount = 0;
     if (assignmentIds.length > 0) {
       const files = await SubmissionFile.findAll({
+        where: { is_cleaned: 0 },
         include: [{ model: Submission, as: 'submission', where: { assignment_id: { [Op.in]: assignmentIds } }, required: true }],
         attributes: ['file_size']
       });

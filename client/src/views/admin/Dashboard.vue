@@ -46,13 +46,15 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import { statsApi } from '@/api'
 
 const stats = ref({})
 const rates = ref([])
 const chartRef = ref(null)
+let chart = null
+let resizeHandler = null
 
 async function loadData() {
   try {
@@ -66,7 +68,9 @@ async function loadData() {
 
 function renderChart() {
   if (!chartRef.value || rates.value.length === 0) return
-  const chart = echarts.init(chartRef.value)
+  // 复用单例，避免重复 init 泄漏 echarts 实例
+  if (chart) chart.dispose()
+  chart = echarts.init(chartRef.value)
   const data = rates.value.slice(0, 10)
   chart.setOption({
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
@@ -91,10 +95,24 @@ function renderChart() {
       }
     ]
   })
-  window.addEventListener('resize', () => chart.resize())
+  if (resizeHandler) window.removeEventListener('resize', resizeHandler)
+  resizeHandler = () => chart && chart.resize()
+  window.addEventListener('resize', resizeHandler)
 }
 
 onMounted(loadData)
+
+// 组件卸载时释放 echarts 实例与 resize 监听，避免内存泄漏
+onUnmounted(() => {
+  if (resizeHandler) {
+    window.removeEventListener('resize', resizeHandler)
+    resizeHandler = null
+  }
+  if (chart) {
+    chart.dispose()
+    chart = null
+  }
+})
 </script>
 
 <style scoped>
