@@ -5,8 +5,8 @@
  *   uploads/xxx         → 后端静态服务
  */
 
-// COS 公共读 URL 前缀（与 server/src/config/cos.js 保持一致）
-const COS_BASE = 'https://mengxiang-1405756754.cos.ap-beijing.myqcloud.com'
+// COS 公共读 URL 前缀，来源 client/.env 的 VITE_COS_BASE（换桶时改那里，与 server/.env 的 COS_BUCKET/COS_REGION 保持一致）
+const COS_BASE = import.meta.env.VITE_COS_BASE || 'https://mengxiang-1405756754.cos.ap-beijing.myqcloud.com'
 
 /**
  * 解析文件路径为可访问的 URL

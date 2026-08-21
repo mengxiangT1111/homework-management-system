@@ -1,3 +1,5 @@
 node_modules/
 dist/
 .env
+# client/.env 只含 VITE_COS_BASE（公共读桶地址，非密钥），需随仓库分发供构建注入
+!.env
