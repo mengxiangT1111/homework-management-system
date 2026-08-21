@@ -113,6 +113,10 @@ exports.createCourse = async (req, res, next) => {
     const cls = await Class.findByPk(class_id);
     if (!cls) return fail(res, '所属班级不存在', 404);
 
+    // 防重复：同班级下不允许同名课程
+    const dup = await Course.findOne({ where: { name, class_id } });
+    if (dup) return fail(res, `该班级下已存在同名课程「${name}」`, 422);
+
     // 教师只能为自己创建课程，且只能在本人学校的班级开课
     const teacher_id = req.user.role === 'teacher' ? req.user.id : (req.body.teacher_id || req.user.id);
     const teacher = await User.findByPk(teacher_id);

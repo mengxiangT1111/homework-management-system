@@ -1,12 +1,18 @@
 <template>
   <div class="page-container">
-    <div class="page-title">我的课程</div>
+    <div class="page-title">
+      我的课程
+      <el-button type="primary" style="margin-left:auto" @click="openCreate">
+        <el-icon><Plus /></el-icon>新增课程
+      </el-button>
+    </div>
 
     <div class="card-section">
       <div v-if="courses.length === 0" class="empty-box">
         <el-icon :size="48"><Reading /></el-icon>
         <p style="margin-top:12px">还没有任课课程</p>
-        <p style="font-size:13px;color:var(--text-light);margin-top:4px">请联系管理员为你分配课程</p>
+        <p style="font-size:13px;color:var(--text-light);margin-top:4px">点击右上角"新增课程"创建，或联系管理员为你分配</p>
+        <el-button type="primary" style="margin-top:16px" @click="openCreate">创建第一门课程</el-button>
       </div>
 
       <el-row :gutter="20">
@@ -28,6 +34,30 @@
         </el-col>
       </el-row>
     </div>
+
+    <!-- 新增课程对话框 -->
+    <el-dialog v-model="createVisible" title="新增课程" width="520px">
+      <el-form :model="createForm" label-width="90px">
+        <el-form-item label="课程名称" required>
+          <el-input v-model="createForm.name" placeholder="如：数据结构" maxlength="100" />
+        </el-form-item>
+        <el-form-item label="所属班级" required>
+          <el-select v-model="createForm.class_id" placeholder="选择班级（本校）" filterable style="width:100%">
+            <el-option v-for="c in classes" :key="c.id" :label="`${c.grade} - ${c.name}`" :value="c.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="学期">
+          <el-input v-model="createForm.semester" placeholder="如 2024-2025-1（选填）" />
+        </el-form-item>
+        <el-form-item label="课程描述">
+          <el-input v-model="createForm.description" type="textarea" :rows="3" placeholder="课程简介（选填）" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="createVisible = false">取消</el-button>
+        <el-button type="primary" :loading="creating" @click="submitCreate">创建</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 课代表管理对话框 -->
     <el-dialog v-model="assistantVisible" :title="`课代表管理 - ${currentCourse?.name || ''}`" width="600px">
@@ -58,9 +88,9 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Reading } from '@element-plus/icons-vue'
+import { Reading, Plus } from '@element-plus/icons-vue'
 import { courseApi, classApi } from '@/api'
 
 const courses = ref([])
@@ -68,6 +98,31 @@ const courses = ref([])
 async function loadData() {
   const res = await courseApi.myTeaching()
   courses.value = res.data
+}
+
+// 新增课程（教师自建，只能选本校班级、自任任课教师）
+const createVisible = ref(false)
+const creating = ref(false)
+const classes = ref([])
+const createForm = reactive({ name: '', class_id: null, semester: '', description: '' })
+
+async function openCreate() {
+  Object.assign(createForm, { name: '', class_id: null, semester: '', description: '' })
+  // 班级下拉：教师身份自动只返回本校班级
+  const res = await classApi.all()
+  classes.value = res.data
+  createVisible.value = true
+}
+
+async function submitCreate() {
+  if (!createForm.name || !createForm.class_id) { ElMessage.warning('请填写课程名称并选择班级'); return }
+  creating.value = true
+  try {
+    const res = await courseApi.create(createForm)
+    ElMessage.success(res.message || '课程创建成功')
+    createVisible.value = false
+    loadData()
+  } catch (e) {} finally { creating.value = false }
 }
 
 // 课代表管理
