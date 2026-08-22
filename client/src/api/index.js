@@ -127,6 +127,31 @@ export const aiApi = {
   })
 }
 
+// ===== AI 批改（新版：模板化 + 提示词版本化 + 异步队列 + 人工复核） =====
+export const gradingApi = {
+  // 评分模板
+  templates: (params) => request.get('/grading/templates', { params }),
+  templateDetail: (id) => request.get(`/grading/templates/${id}`),
+  createTemplate: (data) => request.post('/grading/templates', data),
+  updateTemplate: (id, data) => request.put(`/grading/templates/${id}`, data),
+  publishTemplate: (id) => request.post(`/grading/templates/${id}/publish`),
+  cloneTemplate: (id) => request.post(`/grading/templates/${id}/clone`),
+  toggleTemplate: (id) => request.patch(`/grading/templates/${id}/status`),
+  validateTemplate: (data) => request.post('/grading/templates/validate', data),
+  // 批改任务（异步）
+  batchTask: (data) => request.post('/grading/tasks/batch', data),
+  taskProgress: (assignmentId) => request.get('/grading/tasks', { params: { assignment_id: assignmentId } }),
+  cancelTask: (id) => request.post(`/grading/tasks/${id}/cancel`),
+  // 结果与人工复核
+  resultBySubmission: (submissionId) => request.get(`/grading/results/submission/${submissionId}`),
+  reviews: (params) => request.get('/grading/reviews', { params }),
+  submitReview: (id, data) => request.post(`/grading/reviews/${id}`, data),
+  // 提示词版本管理（管理员）
+  prompts: (params) => request.get('/grading/prompts', { params }),
+  createPromptVersion: (data) => request.post('/grading/prompts/versions', data),
+  updatePromptRouting: (data) => request.put('/grading/prompts/routing', data)
+}
+
 // ===== 统计 =====
 export const statsApi = {
   overview: () => request.get('/stats/overview'),

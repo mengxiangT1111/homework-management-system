@@ -228,10 +228,10 @@
       </template>
     </el-dialog>
 
-    <!-- AI 批量批改对话框 -->
-    <el-dialog v-model="batchAIVisible" title="AI 一键批量批改" width="700px" top="5vh">
+    <!-- AI 批量批改对话框（新版：模板化 + 异步队列） -->
+    <el-dialog v-model="batchAIVisible" title="AI 一键批量批改" width="700px" top="5vh" @close="stopBatchPolling">
       <el-alert type="info" :closable="false" style="margin-bottom:16px">
-        AI 将自动读取所有已提交学生（待批改状态）的作业文件，提取文本内容后逐一批改并保存评分。
+        将按所选评分模板创建异步批改任务（不阻塞页面），AI 逐份批改后自动保存评分；低置信度结果会进入"批改复核"队列待人工确认。
       </el-alert>
 
       <el-card shadow="never" style="background:#f8fbf9">
@@ -239,13 +239,30 @@
           <span style="font-weight:600">📋 批改参数（所有学生共用）</span>
         </template>
         <el-form :model="batchAIForm" label-width="100px" size="small">
-          <el-form-item label="满分分值" required>
-            <el-input-number v-model="batchAIForm.full_score" :min="1" :max="100" />
-            <span style="margin-left:8px;color:var(--text-light)">分</span>
+          <el-form-item label="评分模板" required>
+            <el-select v-model="batchAIForm.template_id" placeholder="选择已发布的评分模板" style="width:100%" :loading="templatesLoading">
+              <el-option
+                v-for="t in templateOptions"
+                :key="t.id"
+                :label="`${t.name}（${t.subject}·满分${t.full_score}·v${t.version}${t.is_mine ? '' : '·共享'}）`"
+                :value="t.id"
+                :disabled="t.status !== 'published'"
+              />
+            </el-select>
+            <div style="font-size:12px;color:var(--text-light);margin-top:4px">
+              模板在"批改模板"页面创建与发布；未发布的模板不可用
+            </div>
           </el-form-item>
-          <el-form-item label="评分细则">
-            <el-input v-model="batchAIForm.grading_criteria" type="textarea" :rows="3"
-              placeholder="可选，不填则AI自动从参考答案提取要点" />
+          <el-form-item label="批改模式">
+            <el-radio-group v-model="batchAIForm.mode">
+              <el-radio value="balanced">均衡</el-radio>
+              <el-radio value="strict">严格</el-radio>
+              <el-radio value="encouraging">鼓励</el-radio>
+            </el-radio-group>
+          </el-form-item>
+          <el-form-item label="评分补充">
+            <el-input v-model="batchAIForm.grading_criteria" type="textarea" :rows="2"
+              placeholder="可选，附加在模板细则之后的补充说明" />
           </el-form-item>
           <el-form-item label="参考答案" required>
             <el-input v-model="batchAIForm.reference_answer" type="textarea" :rows="4"
@@ -261,7 +278,9 @@
 
       <div v-if="batchGrading" style="margin:16px 0;text-align:center">
         <el-progress :percentage="batchProgress" :stroke-width="12" striped />
-        <p style="color:var(--text-light);margin-top:8px;font-size:13px">正在AI批改中，请稍候...</p>
+        <p style="color:var(--text-light);margin-top:8px;font-size:13px">
+          AI 正在后台批改（{{ batchProgressInfo }}），可关闭此窗口稍后在列表查看进度
+        </p>
       </div>
 
       <div v-if="batchResult" class="batch-result">
@@ -272,7 +291,7 @@
           <el-table-column label="状态" width="90">
             <template #default="{ row }">
               <el-tag v-if="row.status === 'success'" type="success" size="small">成功</el-tag>
-              <el-tag v-else-if="row.status === 'skipped'" type="warning" size="small">跳过</el-tag>
+              <el-tag v-else-if="row.needs_review" type="warning" size="small">待复核</el-tag>
               <el-tag v-else type="danger" size="small">失败</el-tag>
             </template>
           </el-table-column>
@@ -280,14 +299,14 @@
             <template #default="{ row }">{{ row.score ?? '-' }}</template>
           </el-table-column>
           <el-table-column label="原因" min-width="200">
-            <template #default="{ row }">{{ row.reason || '-' }}</template>
+            <template #default="{ row }">{{ row.error_msg || (row.needs_review ? '低置信度，已进入人工复核' : '-') }}</template>
           </el-table-column>
         </el-table>
       </div>
 
       <template #footer>
         <el-button @click="batchAIVisible = false">关闭</el-button>
-        <el-button type="danger" :loading="batchGrading" @click="doBatchAIGrade" :disabled="!batchAIForm.reference_answer">
+        <el-button type="danger" :loading="batchGrading" @click="doBatchAIGrade" :disabled="!batchAIForm.template_id || !batchAIForm.reference_answer">
           <el-icon><MagicStick /></el-icon> 开始一键批改
         </el-button>
       </template>
@@ -302,7 +321,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft, Document, MagicStick } from '@element-plus/icons-vue'
 import FilePreview from '@/components/FilePreview.vue'
 import PlagiarismDetail from '@/components/PlagiarismDetail.vue'
-import { assignmentApi, submissionApi, downloadFile, plagiarismApi, aiApi } from '@/api'
+import { assignmentApi, submissionApi, downloadFile, plagiarismApi, aiApi, gradingApi } from '@/api'
 import { fileUrl as resolveFileUrl, isCOS } from '@/utils/fileUrl'
 
 const route = useRoute()
@@ -485,32 +504,54 @@ async function applyAIResult() {
 
 onMounted(loadData)
 
-// 批量 AI 批改
+// 批量 AI 批改（新版：模板化 + 异步队列 + 进度轮询）
 const batchGrading = ref(false)
 const batchAIVisible = ref(false)
 const batchAIForm = reactive({
-  full_score: 100,
+  template_id: null,
+  mode: 'balanced',
   grading_criteria: '',
-  reference_answer: '',
-  useWord: false
+  reference_answer: ''
 })
-const batchRefFile = ref(null)
 const batchProgress = ref(0)
+const batchProgressInfo = ref('')
 const batchResult = ref(null)
+const templateOptions = ref([])
+const templatesLoading = ref(false)
+let batchTimer = null
+
+async function loadTemplates() {
+  templatesLoading.value = true
+  try {
+    const res = await gradingApi.templates({ page: 1, pageSize: 100 })
+    templateOptions.value = res.data.list
+    // 默认选中第一个已发布模板
+    if (!batchAIForm.template_id) {
+      const first = templateOptions.value.find(t => t.status === 'published')
+      batchAIForm.template_id = first ? first.id : null
+    }
+  } catch (e) {
+    ElMessage.error('评分模板加载失败，请先在"批改模板"页面创建并发布模板')
+  } finally { templatesLoading.value = false }
+}
 
 function openBatchAI() {
-  batchAIForm.full_score = 100
+  batchAIForm.template_id = batchAIForm.template_id || null
+  batchAIForm.mode = 'balanced'
   batchAIForm.grading_criteria = ''
   batchAIForm.reference_answer = ''
-  batchAIForm.useWord = false
-  batchRefFile.value = null
   batchProgress.value = 0
+  batchProgressInfo.value = ''
   batchResult.value = null
+  if (templateOptions.value.length === 0) loadTemplates()
   batchAIVisible.value = true
 }
 
+function stopBatchPolling() {
+  if (batchTimer) { clearInterval(batchTimer); batchTimer = null }
+}
+
 async function handleBatchRefUpload(file) {
-  batchRefFile.value = file.raw
   const formData = new FormData()
   formData.append('file', file.raw)
   try {
@@ -523,28 +564,49 @@ async function handleBatchRefUpload(file) {
 }
 
 async function doBatchAIGrade() {
-  if (!batchAIForm.reference_answer) {
-    ElMessage.warning('请填写或上传参考答案')
-    return
-  }
+  if (!batchAIForm.template_id) { ElMessage.warning('请选择评分模板'); return }
+  if (!batchAIForm.reference_answer) { ElMessage.warning('请填写或上传参考答案'); return }
   batchGrading.value = true
-  batchProgress.value = 10
+  batchProgress.value = 5
   batchResult.value = null
   try {
-    const res = await aiApi.batchGrade({
+    // 1. 创建异步任务（立即返回，不等待LLM）
+    const res = await gradingApi.batchTask({
       assignment_id: route.params.id,
-      full_score: batchAIForm.full_score,
+      template_id: batchAIForm.template_id,
+      reference_answer: batchAIForm.reference_answer,
       grading_criteria: batchAIForm.grading_criteria,
-      reference_answer: batchAIForm.reference_answer
+      mode: batchAIForm.mode
     })
-    batchResult.value = res.data
-    batchProgress.value = 100
     ElMessage.success(res.message)
-    loadData()
+    // 2. 轮询进度（5秒一次）
+    batchTimer = setInterval(async () => {
+      try {
+        const p = await gradingApi.taskProgress(route.params.id)
+        const { total, success, failed, pending, processing } = p.data.progress
+        const done = success + failed
+        batchProgress.value = total > 0 ? Math.max(5, Math.round(done / total * 100)) : 100
+        batchProgressInfo.value = `完成 ${done}/${total}，排队 ${pending}，批改中 ${processing}`
+        if (pending + processing === 0 && total > 0) {
+          stopBatchPolling()
+          batchProgress.value = 100
+          batchGrading.value = false
+          const needsReview = p.data.list.filter(x => x.needs_review).length
+          batchResult.value = {
+            success_count: success,
+            fail_count: failed + needsReview,
+            details: p.data.list
+          }
+          loadData()
+          if (needsReview > 0) {
+            ElMessage.warning(`${needsReview} 份结果置信度较低，已进入"批改复核"队列`)
+          }
+        }
+      } catch (e) { /* 单次轮询失败忽略，等下一轮 */ }
+    }, 5000)
   } catch (e) {
-    ElMessage.error('批量批改失败：' + (e.response?.data?.message || e.message || '未知错误'))
-  } finally {
     batchGrading.value = false
+    ElMessage.error(e.response?.data?.message || '创建批改任务失败')
   }
 }
 </script>

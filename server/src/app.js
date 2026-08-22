@@ -80,6 +80,7 @@ app.use('/api/ai', require('./routes/ai'));
 app.use('/api/files', require('./routes/files'));
 app.use('/api/schools', require('./routes/schools'));
 app.use('/api/plagiarism', require('./routes/plagiarism'));
+app.use('/api/grading', require('./routes/grading'));
 
 // 健康检查
 app.get('/api/health', (req, res) => {

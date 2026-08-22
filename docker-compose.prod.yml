@@ -58,6 +58,15 @@ services:
       AI_API_URL: ${AI_API_URL:-}
       AI_API_KEY: ${AI_API_KEY:-}
       AI_MODEL: ${AI_MODEL:-gpt-4o}
+      # ===== 可选：AI 批改升级（模板化+异步队列+人工复核，均有默认值可不配置） =====
+      AI_MODEL_FALLBACK: ${AI_MODEL_FALLBACK:-}          # 备用模型（主模型熔断时降级），留空禁用
+      AI_TIMEOUT: ${AI_TIMEOUT:-60000}                   # 单次 LLM 请求超时(ms)
+      AI_MAX_RETRIES: ${AI_MAX_RETRIES:-2}               # 单模型网络层重试次数
+      GRADING_CONCURRENCY: ${GRADING_CONCURRENCY:-3}     # 批改队列并发数
+      GRADING_POLL_INTERVAL: ${GRADING_POLL_INTERVAL:-2000} # 队列轮询间隔(ms)
+      GRADING_MAX_ATTEMPTS: ${GRADING_MAX_ATTEMPTS:-3}   # 任务级最大尝试次数
+      GRADING_REVIEW_THRESHOLD: ${GRADING_REVIEW_THRESHOLD:-0.6} # 置信度阈值，低于进人工复核
+      GRADING_AUTO_APPLY: ${GRADING_AUTO_APPLY:-1}       # 高置信结果自动回写分数(1/0)
       # ===== 可选：腾讯云 COS（留空则作业文件存本地数据卷） =====
       COS_SECRET_ID: ${COS_SECRET_ID:-}
       COS_SECRET_KEY: ${COS_SECRET_KEY:-}

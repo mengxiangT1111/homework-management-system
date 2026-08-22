@@ -33,6 +33,11 @@ async function start() {
     const { startScheduler } = require('./utils/notificationScheduler');
     startScheduler();
 
+    // AI 智能批改：提示词版本库播种 + 异步队列 worker 启动
+    const promptService = require('./services/prompt.service');
+    await promptService.ensureSeeded();
+    require('./services/grading/queue.worker').startQueueWorker();
+
     // 全班查重：异步任务队列 worker 启动
     require('./services/plagiarism/queue.worker').startPlagiarismWorker();
 

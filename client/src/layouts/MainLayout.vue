@@ -110,6 +110,8 @@ const menuConfig = {
     { path: '/teacher/dashboard', title: '仪表盘', icon: 'HomeFilled' },
     { path: '/teacher/assignments', title: '作业管理', icon: 'Document' },
     { path: '/teacher/plagiarism', title: '查重中心', icon: 'WarningFilled' },
+    { path: '/teacher/grading/templates', title: '批改模板', icon: 'List' },
+    { path: '/teacher/grading/reviews', title: '批改复核', icon: 'Finished' },
     { path: '/teacher/courses', title: '我的课程', icon: 'Reading' },
     { path: '/teacher/notifications', title: '消息通知', icon: 'Bell' },
     { path: '/teacher/profile', title: '个人中心', icon: 'User' }

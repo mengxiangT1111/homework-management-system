@@ -13,6 +13,13 @@ const Notification = require('./Notification');
 const PlagiarismResult = require('./PlagiarismResult');
 const PlagiarismTask = require('./PlagiarismTask');
 
+// AI 智能批改模块
+const {
+  GradingTemplate, GradingDimension, DimensionRubric,
+  PromptVersion, PromptRouting,
+  GradingTask, GradingResult, GradingReview
+} = require('./grading');
+
 // ===== 关联关系 =====
 // 班级 - 班主任(教师)
 Class.belongsTo(User, { as: 'headTeacher', foreignKey: 'teacher_id' });
@@ -93,6 +100,26 @@ PlagiarismTask.belongsTo(Assignment, { as: 'assignment', foreignKey: 'assignment
 Assignment.hasMany(PlagiarismTask, { as: 'plagiarismTasks', foreignKey: 'assignment_id' });
 PlagiarismTask.belongsTo(User, { as: 'creator', foreignKey: 'created_by' });
 
+// ===== AI 智能批改模块与现有表的关联 =====
+// 模板 - 学校/教师
+GradingTemplate.belongsTo(User, { as: 'teacher', foreignKey: 'teacher_id' });
+GradingTemplate.belongsTo(School, { as: 'school', foreignKey: 'school_id' });
+
+// 批改任务 - 提交/作业
+GradingTask.belongsTo(Submission, { as: 'submission', foreignKey: 'submission_id' });
+Submission.hasMany(GradingTask, { as: 'gradingTasks', foreignKey: 'submission_id' });
+GradingTask.belongsTo(Assignment, { as: 'assignment', foreignKey: 'assignment_id' });
+Assignment.hasMany(GradingTask, { as: 'gradingTasks', foreignKey: 'assignment_id' });
+
+// 批改结果 - 提交
+GradingResult.belongsTo(Submission, { as: 'submission', foreignKey: 'submission_id' });
+Submission.hasMany(GradingResult, { as: 'gradingResults', foreignKey: 'submission_id' });
+
+// 复核工单 - 提交/复核教师
+GradingReview.belongsTo(Submission, { as: 'submission', foreignKey: 'submission_id' });
+Submission.hasMany(GradingReview, { as: 'gradingReviews', foreignKey: 'submission_id' });
+GradingReview.belongsTo(User, { as: 'reviewer', foreignKey: 'reviewer_id' });
+
 module.exports = {
   sequelize,
   User,
@@ -106,5 +133,13 @@ module.exports = {
   SubmissionFile,
   Notification,
   PlagiarismResult,
-  PlagiarismTask
+  PlagiarismTask,
+  GradingTemplate,
+  GradingDimension,
+  DimensionRubric,
+  PromptVersion,
+  PromptRouting,
+  GradingTask,
+  GradingResult,
+  GradingReview
 };

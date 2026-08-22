@@ -38,9 +38,10 @@
         <el-table-column label="文件数" width="80" align="center">
           <template #default="{ row }">{{ row.files?.length || 0 }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="100" align="center">
+        <el-table-column label="操作" width="170" align="center">
           <template #default="{ row }">
             <el-button link type="primary" @click="$router.push(`/student/assignments/${row.assignment_id}`)">查看</el-button>
+            <el-button link type="success" :loading="gradingLoadingId === row.id" @click="openGradingResult(row)">AI批改详情</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -52,18 +53,30 @@
         @current-change="handlePage"
       />
     </div>
+
+    <!-- AI 批改结果对话框 -->
+    <el-dialog v-model="gradingVisible" title="AI 批改详情" width="760px" top="3vh">
+      <GradingResultCard v-if="gradingResult" :result="gradingResult" />
+      <div v-else style="text-align:center;color:var(--text-light);padding:40px 0">该提交暂无 AI 批改结果</div>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue'
 import { UploadFilled } from '@element-plus/icons-vue'
-import { submissionApi } from '@/api'
+import { ElMessage } from 'element-plus'
+import { submissionApi, gradingApi } from '@/api'
+import GradingResultCard from '@/components/GradingResultCard.vue'
 
 const list = ref([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = 10
+
+const gradingVisible = ref(false)
+const gradingResult = ref(null)
+const gradingLoadingId = ref(null)
 
 function formatTime(t) { return new Date(t).toLocaleString('zh-CN') }
 function statusText(s) { return { submitted: '待批改', graded: '已通过', returned: '已退回' }[s] || s }
@@ -75,6 +88,25 @@ async function loadData() {
   total.value = res.data.total
 }
 function handlePage(p) { page.value = p; loadData() }
+
+async function openGradingResult(row) {
+  gradingLoadingId.value = row.id
+  try {
+    const res = await gradingApi.resultBySubmission(row.id)
+    if (!res.data) {
+      gradingResult.value = null
+      gradingVisible.value = true
+      return
+    }
+    gradingResult.value = res.data
+    gradingVisible.value = true
+  } catch (e) {
+    // 学生只能看自己的提交，403/404 一般是路径异常
+    ElMessage.error(e.response?.data?.message || '查询批改结果失败')
+  } finally {
+    gradingLoadingId.value = null
+  }
+}
 
 onMounted(loadData)
 </script>
