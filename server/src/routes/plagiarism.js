@@ -14,7 +14,17 @@ router.use(auth);
 // 教师/管理员可用的路由
 router.use(requireRole('teacher', 'admin'));
 
-// 全班一键查重（放在具体ID路由前面避免冲突）
+// ===== 具名任务路由（必须注册在参数路由之前，避免被 /:id 拦截） =====
+
+// 查询作业最新查重任务状态（前端轮询进度）
+router.get('/task/status/:assignmentId', plagiarismController.getTaskStatus);
+
+// 取消进行中的查重任务
+router.post('/task/cancel/:assignmentId', plagiarismController.cancelTask);
+
+// ===== 参数路由 =====
+
+// 全班一键查重（建任务，后台队列执行）
 router.post('/batch-check/:assignmentId', plagiarismController.batchCheckAll);
 
 // 手动触发单份查重检测

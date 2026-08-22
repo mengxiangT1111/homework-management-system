@@ -75,11 +75,19 @@
         </div>
       </div>
 
-      <!-- 查重进度 -->
+      <!-- 查重进度（后台任务执行中，前端轮询） -->
       <div v-if="batchLoading" class="card-section">
         <div class="progress-wrapper">
           <el-progress :percentage="batchProgress" :stroke-width="12" />
-          <p class="progress-text">正在检测第 {{ batchCurrent }} / {{ batchTotal }} 份提交...</p>
+          <p class="progress-text">
+            {{ taskStatusText }}
+            <span v-if="batchTotal > 0">（已完成 {{ batchCurrent }} / {{ batchTotal }} 对比对）</span>
+          </p>
+          <div style="text-align:center;margin-top:8px">
+            <el-button size="small" plain :loading="cancelling" @click="cancelRunningTask">
+              取消查重
+            </el-button>
+          </div>
         </div>
       </div>
 
@@ -196,7 +204,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { DCaret } from '@element-plus/icons-vue'
 import { assignmentApi, plagiarismApi } from '@/api'
@@ -214,7 +222,15 @@ const suspiciousResults = ref([])
 const studentMaxScores = ref({})
 const detailVisible = ref(false)
 const detailSubmissionId = ref(null)
+const cancelling = ref(false)
+const taskPhase = ref('') // 任务阶段提示（物化文件/检测中）
+let pollTimer = null
 const assignmentId = computed(() => currentAssignment.value?.id)
+
+const taskStatusText = computed(() => {
+  if (taskPhase.value) return taskPhase.value
+  return '后台查重进行中，可离开本页，稍后回来查看进度...'
+})
 
 const studentScoreList = computed(() => {
   const nameMap = batchResult.value?.studentNameMap || {}
@@ -258,11 +274,16 @@ function selectAssignment(row) {
   batchResult.value = null
   suspiciousResults.value = []
   studentMaxScores.value = {}
-  // 尝试加载已有结果
+  batchProgress.value = 0
+  batchCurrent.value = 0
+  batchTotal.value = 0
+  // 加载已有结果 + 若有进行中的查重任务则恢复进度展示
   loadSummary()
+  resumeRunningTask()
 }
 
 function backToList() {
+  stopPolling()
   currentAssignment.value = null
   batchResult.value = null
   suspiciousResults.value = []
@@ -270,10 +291,30 @@ function backToList() {
   loadAssignments()
 }
 
+/** 进入作业时检查是否有进行中的任务，有则恢复轮询展示 */
+async function resumeRunningTask() {
+  if (!currentAssignment.value) return
+  try {
+    const res = await plagiarismApi.taskStatus(currentAssignment.value.id)
+    const t = res.data?.task
+    if (t && (t.status === 'pending' || t.status === 'processing')) {
+      batchLoading.value = true
+      taskPhase.value = t.status === 'pending' ? '任务排队中...' : ''
+      batchTotal.value = t.totalPairs || 0
+      batchCurrent.value = t.completedPairs || 0
+      startPolling()
+    } else if (t && t.status === 'done' && res.data?.summary) {
+      applySummary(res.data.summary)
+    }
+  } catch (e) {
+    // 状态查询失败不影响使用
+  }
+}
+
 async function batchCheckAll() {
   try {
     await ElMessageBox.confirm(
-      `将对「${currentAssignment.value.title}」所有已提交作业进行两两查重比对，共 ${currentAssignment.value.submit_count} 份提交，预计需要一定时间，是否继续？`,
+      `将对「${currentAssignment.value.title}」所有已提交作业进行两两查重比对，任务在后台执行，可随时回来查看进度，是否继续？`,
       '全班一键查重',
       {
         type: 'warning',
@@ -288,33 +329,119 @@ async function batchCheckAll() {
   batchLoading.value = true
   batchProgress.value = 0
   batchCurrent.value = 0
-  batchTotal.value = currentAssignment.value.submit_count || 0
+  batchTotal.value = 0
+  taskPhase.value = '正在创建查重任务...'
 
   try {
     const res = await plagiarismApi.batchCheck(currentAssignment.value.id)
-    batchResult.value = res.data
 
-    // 格式化可疑结果
-    suspiciousResults.value = (res.data?.suspiciousResults || []).map(r => ({
-      ...r,
-      similarityScore: parseFloat(r.similarityScore) || 0
-    }))
+    // 提交人数不足等情况：直接提示并结束
+    if (!res.data?.task) {
+      ElMessage.info(res.message || '无法创建查重任务')
+      batchLoading.value = false
+      return
+    }
 
-    // 学生最高分
-    studentMaxScores.value = res.data?.studentMaxScores || {}
+    if (res.data.alreadyRunning) {
+      ElMessage.info('该作业已有查重任务在进行中，正在展示进度')
+    }
 
-    batchProgress.value = 100
-    batchCurrent.value = batchTotal.value
+    batchTotal.value = res.data.task.totalPairs || 0
+    batchCurrent.value = res.data.task.completedPairs || 0
+    taskPhase.value = res.data.task.status === 'pending' ? '任务排队中...' : ''
+    startPolling()
+  } catch (e) {
+    ElMessage.error(e.message || '创建查重任务失败')
+    batchLoading.value = false
+  }
+}
 
-    if (suspiciousResults.value.length > 0) {
-      ElMessage.warning(`查重完成，发现 ${suspiciousResults.value.length} 条可疑结果`)
-    } else {
-      ElMessage.success('查重完成，未发现可疑结果')
+function startPolling() {
+  stopPolling()
+  pollTimer = setInterval(pollTaskStatus, 2000)
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
+async function pollTaskStatus() {
+  if (!currentAssignment.value) return stopPolling()
+  try {
+    const res = await plagiarismApi.taskStatus(currentAssignment.value.id)
+    const t = res.data?.task
+    if (!t) {
+      stopPolling()
+      batchLoading.value = false
+      return
+    }
+
+    batchTotal.value = t.totalPairs || 0
+    batchCurrent.value = t.completedPairs || 0
+    taskPhase.value = t.status === 'pending' ? '任务排队中...' : ''
+    batchProgress.value = batchTotal.value > 0
+      ? Math.min(100, Math.floor((batchCurrent.value / batchTotal.value) * 100))
+      : (t.status === 'done' ? 100 : 0)
+
+    if (t.status === 'done') {
+      stopPolling()
+      batchLoading.value = false
+      applySummary(res.data?.summary)
+    } else if (t.status === 'failed') {
+      stopPolling()
+      batchLoading.value = false
+      batchProgress.value = 0
+      ElMessage.error(t.errorMsg || '查重任务执行失败')
+    } else if (t.status === 'cancelled') {
+      stopPolling()
+      batchLoading.value = false
+      ElMessage.info('查重任务已取消')
     }
   } catch (e) {
-    ElMessage.error(e.message || '批量查重失败')
+    // 单次轮询失败（网络抖动）忽略，下一轮重试
+  }
+}
+
+/** 任务完成后套用汇总数据（结构与旧版同步接口一致） */
+function applySummary(summary) {
+  if (!summary) return
+  batchResult.value = summary
+  suspiciousResults.value = (summary.suspiciousResults || []).map(r => ({
+    ...r,
+    similarityScore: parseFloat(r.similarityScore) || 0
+  }))
+  studentMaxScores.value = summary.studentMaxScores || {}
+  batchProgress.value = 100
+
+  if (suspiciousResults.value.length > 0) {
+    ElMessage.warning(`查重完成，发现 ${summary.suspiciousCount || suspiciousResults.value.length} 对可疑结果`)
+  } else {
+    ElMessage.success('查重完成，未发现可疑结果')
+  }
+}
+
+async function cancelRunningTask() {
+  if (!currentAssignment.value) return
+  try {
+    await ElMessageBox.confirm('确定取消当前查重任务吗？已完成的对不会回滚。', '取消查重', {
+      type: 'warning',
+      confirmButtonText: '确定取消',
+      cancelButtonText: '继续查重'
+    })
+  } catch (e) {
+    return
+  }
+  cancelling.value = true
+  try {
+    await plagiarismApi.taskCancel(currentAssignment.value.id)
+    ElMessage.success('已发送取消指令，任务将在当前比对完成后停止')
+  } catch (e) {
+    ElMessage.error(e.message || '取消失败')
   } finally {
-    batchLoading.value = false
+    cancelling.value = false
   }
 }
 
@@ -339,6 +466,7 @@ function viewStudentDetail(submissionId) {
 }
 
 onMounted(loadAssignments)
+onUnmounted(stopPolling)
 </script>
 
 <style scoped>

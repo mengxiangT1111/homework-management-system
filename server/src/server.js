@@ -33,6 +33,9 @@ async function start() {
     const { startScheduler } = require('./utils/notificationScheduler');
     startScheduler();
 
+    // 全班查重：异步任务队列 worker 启动
+    require('./services/plagiarism/queue.worker').startPlagiarismWorker();
+
     app.listen(PORT, () => {
       console.log(`\n========================================`);
       console.log(`  在线作业提交管理系统 - 后端服务`);

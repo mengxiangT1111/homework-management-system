@@ -11,6 +11,7 @@ const Submission = require('./Submission');
 const SubmissionFile = require('./SubmissionFile');
 const Notification = require('./Notification');
 const PlagiarismResult = require('./PlagiarismResult');
+const PlagiarismTask = require('./PlagiarismTask');
 
 // ===== 关联关系 =====
 // 班级 - 班主任(教师)
@@ -87,6 +88,11 @@ Submission.hasMany(PlagiarismResult, { as: 'plagiarismResults', foreignKey: 'sub
 
 PlagiarismResult.belongsTo(Submission, { as: 'comparedWith', foreignKey: 'compared_with_id' });
 
+// 查重任务 - 作业/教师
+PlagiarismTask.belongsTo(Assignment, { as: 'assignment', foreignKey: 'assignment_id' });
+Assignment.hasMany(PlagiarismTask, { as: 'plagiarismTasks', foreignKey: 'assignment_id' });
+PlagiarismTask.belongsTo(User, { as: 'creator', foreignKey: 'created_by' });
+
 module.exports = {
   sequelize,
   User,
@@ -99,5 +105,6 @@ module.exports = {
   Submission,
   SubmissionFile,
   Notification,
-  PlagiarismResult
+  PlagiarismResult,
+  PlagiarismTask
 };

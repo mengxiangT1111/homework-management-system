@@ -1,32 +1,61 @@
 /**
  * Plagiarism Controller
- * 查重检测控制器 - 新增全班一键查重功能
+ * 查重检测控制器
+ * - 单份查重：同步执行（COS 文件先物化到本地）
+ * - 全班查重：建任务 → 后台队列执行 → 前端轮询 /task/status 进度
  */
 
-const path = require('path');
 const { Op } = require('sequelize');
 const {
-  Submission, SubmissionFile, Assignment, Course, User, PlagiarismResult
+  Submission, SubmissionFile, Assignment, User, PlagiarismResult, PlagiarismTask
 } = require('../models');
 const { success, fail } = require('../utils/response');
 const detectionService = require('../services/detectionService');
+const { ensureLocalFile } = require('../utils/fileStorage').helpers;
+const plagiarismService = require('../services/plagiarism/plagiarism.service');
 
-const UPLOAD_DIR = path.resolve(path.join(__dirname, '../../', process.env.UPLOAD_DIR || 'uploads'));
+/** 校验作业归属：仅作业发布教师或 admin 可操作 */
+async function assertAssignmentOwner(req, res, assignmentId) {
+  const assignment = await Assignment.findByPk(assignmentId);
+  if (!assignment) {
+    fail(res, '作业不存在', 404);
+    return null;
+  }
+  if (assignment.teacher_id !== req.user.id && req.user.role !== 'admin') {
+    fail(res, '仅作业发布教师可进行查重检测', 403);
+    return null;
+  }
+  return assignment;
+}
+
+/** 任务行 → 前端格式 */
+function formatTask(task) {
+  return {
+    taskId: task.id,
+    status: task.status,
+    totalSubmissions: task.total_submissions,
+    totalPairs: task.total_pairs,
+    completedPairs: task.completed_pairs,
+    failedPairs: task.failed_pairs,
+    suspiciousCount: task.suspicious_count,
+    errorMsg: task.error_msg,
+    startedAt: task.started_at,
+    finishedAt: task.finished_at,
+    createdAt: task.created_at
+  };
+}
 
 /**
- * 教师手动触发查重检测
+ * 教师手动触发单份查重检测（同步）
  * POST /api/plagiarism/check/:assignmentId/:submissionId
  */
 exports.checkPlagiarism = async (req, res, next) => {
   try {
     const { assignmentId, submissionId } = req.params;
-    
-    const assignment = await Assignment.findByPk(assignmentId);
-    if (!assignment) return fail(res, '作业不存在', 404);
-    if (assignment.teacher_id !== req.user.id && req.user.role !== 'admin') {
-      return fail(res, '仅作业发布教师可进行查重检测', 403);
-    }
-    
+
+    const assignment = await assertAssignmentOwner(req, res, assignmentId);
+    if (!assignment) return;
+
     const targetSubmission = await Submission.findByPk(submissionId, {
       include: [
         { model: SubmissionFile, as: 'files' },
@@ -34,7 +63,7 @@ exports.checkPlagiarism = async (req, res, next) => {
       ]
     });
     if (!targetSubmission) return fail(res, '提交记录不存在', 404);
-    
+
     const otherSubmissions = await Submission.findAll({
       where: { assignment_id: assignmentId, id: { [Op.ne]: submissionId } },
       include: [
@@ -42,56 +71,61 @@ exports.checkPlagiarism = async (req, res, next) => {
         { model: User, as: 'student', attributes: ['id', 'real_name', 'username'] }
       ]
     });
-    
+
     if (otherSubmissions.length === 0) {
       return success(res, { results: [] }, '没有其他提交可供对比');
     }
-    
+
     const isHealthy = await detectionService.healthCheck();
     if (!isHealthy) {
       return fail(res, '查重检测服务未启动，请联系管理员', 503);
     }
-    
+
     const targetFiles = targetSubmission.Files || targetSubmission.files || [];
     if (targetFiles.length === 0) return fail(res, '目标提交无文件', 400);
     if (targetFiles[0].is_cleaned) return fail(res, '目标提交文件已被过期清理，无法查重', 422);
-    
-    const sourceFile = targetFiles[0];
-    const sourcePath = sourceFile.file_path;
-    
+
+    // COS 兼容：调检测服务前把文件物化到本地（cos:// → 本地临时文件）
+    let sourceLocalPath;
+    try {
+      sourceLocalPath = await ensureLocalFile(targetFiles[0].file_path);
+    } catch (e) {
+      return fail(res, `源文件获取失败：${e.message}`, 422);
+    }
+
     const candidateEntries = [];
     for (const sub of otherSubmissions) {
       const files = sub.Files || sub.files || [];
       if (files.length > 0 && !files[0].is_cleaned) {
-        candidateEntries.push({
-          submissionId: sub.id,
-          studentName: sub.student?.real_name || sub.student?.username || '未知',
-          filePath: files[0].file_path
-        });
+        try {
+          candidateEntries.push({
+            submissionId: sub.id,
+            studentName: sub.student?.real_name || sub.student?.username || '未知',
+            localPath: await ensureLocalFile(files[0].file_path)
+          });
+        } catch (e) {
+          console.warn(`单份查重：提交 ${sub.id} 文件物化失败，跳过: ${e.message}`);
+        }
       }
     }
-    
+
     if (candidateEntries.length === 0) {
-      return success(res, { results: [] }, '其他提交均无文件');
+      return success(res, { results: [] }, '其他提交均无可检测文件');
     }
-    
-    await PlagiarismResult.update(
-      { status: 'processing' },
-      { where: { submission_id: submissionId, assignment_id: assignmentId } }
-    );
-    
+
     const detectionResult = await detectionService.detect({
-      sourcePath: sourcePath,
-      candidatePaths: candidateEntries.map(e => e.filePath),
+      sourcePath: sourceLocalPath,
+      candidatePaths: candidateEntries.map(e => e.localPath),
       assignmentId: parseInt(assignmentId),
-      submissionId: parseInt(submissionId)
+      submissionId: parseInt(submissionId),
+      timeout: plagiarismService.DETECT_CALL_TIMEOUT
     });
-    
+
     const savedResults = [];
     for (const detResult of detectionResult.results || []) {
-      const matchedEntry = candidateEntries.find(e => e.filePath === detResult.candidate);
+      const matchedEntry = candidateEntries.find(e => e.localPath === detResult.candidate);
       if (!matchedEntry) continue;
-      
+
       const [plagResult] = await PlagiarismResult.upsert({
         assignment_id: parseInt(assignmentId),
         submission_id: parseInt(submissionId),
@@ -108,7 +142,7 @@ exports.checkPlagiarism = async (req, res, next) => {
         error_message: detResult.error || null,
         checked_at: new Date()
       });
-      
+
       savedResults.push({
         id: plagResult.id,
         comparedWithId: matchedEntry.submissionId,
@@ -123,7 +157,7 @@ exports.checkPlagiarism = async (req, res, next) => {
         details: detResult.details || null
       });
     }
-    
+
     return success(res, {
       assignmentId: parseInt(assignmentId),
       submissionId: parseInt(submissionId),
@@ -132,7 +166,7 @@ exports.checkPlagiarism = async (req, res, next) => {
       totalCompared: savedResults.length,
       results: savedResults
     }, '查重检测完成');
-    
+
   } catch (error) {
     try {
       await PlagiarismResult.update(
@@ -145,158 +179,110 @@ exports.checkPlagiarism = async (req, res, next) => {
 };
 
 /**
- * 全班一键查重
+ * 全班一键查重（异步任务化）
  * POST /api/plagiarism/batch-check/:assignmentId
- * 对该作业每份已提交作业，与同班其他已提交作业逐一比对
+ * 建任务 → 队列后台执行 → 前端轮询 GET /task/status/:assignmentId
  */
 exports.batchCheckAll = async (req, res, next) => {
   try {
     const { assignmentId } = req.params;
-    
-    // 1. 验证作业
-    const assignment = await Assignment.findByPk(assignmentId);
-    if (!assignment) return fail(res, '作业不存在', 404);
-    if (assignment.teacher_id !== req.user.id && req.user.role !== 'admin') {
-      return fail(res, '仅作业发布教师可操作', 403);
+
+    // 1. 验证作业归属
+    const assignment = await assertAssignmentOwner(req, res, assignmentId);
+    if (!assignment) return;
+
+    // 2. 已有进行中的任务直接返回（幂等，避免重复建任务重复计算）
+    const running = await PlagiarismTask.findOne({
+      where: { assignment_id: assignmentId, status: ['pending', 'processing'] },
+      order: [['id', 'DESC']]
+    });
+    if (running) {
+      return success(res, { task: formatTask(running), alreadyRunning: true }, '该作业已有查重任务在进行中');
     }
-    
-    // 2. 检查服务健康
+
+    // 3. 检查服务健康（提前给教师明确提示，避免建了任务全失败）
     const isHealthy = await detectionService.healthCheck();
     if (!isHealthy) {
       return fail(res, '查重检测服务未启动，请联系管理员', 503);
     }
-    
-    // 3. 获取所有已提交的作业（含文件）
-    const submissions = await Submission.findAll({
+
+    // 4. 统计可查重提交数
+    const entries = await plagiarismService.loadValidSubmissionEntries(assignmentId);
+    const n = entries.length;
+    if (n < 2) {
+      return success(res, { total: n, results: [] }, '提交人数不足，至少需要2人才能查重');
+    }
+
+    // 5. 建任务，后台队列执行（C(n,2) 组合去重 + 双向写入）
+    const task = await PlagiarismTask.create({
+      assignment_id: parseInt(assignmentId),
+      created_by: req.user.id,
+      total_submissions: n,
+      total_pairs: (n * (n - 1)) / 2
+    });
+
+    return success(res, { task: formatTask(task) }, `查重任务已创建：${n} 份提交，共 ${(n * (n - 1)) / 2} 对比对`);
+
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * 查询作业最新查重任务状态（前端轮询）
+ * GET /api/plagiarism/task/status/:assignmentId
+ */
+exports.getTaskStatus = async (req, res, next) => {
+  try {
+    const { assignmentId } = req.params;
+
+    const assignment = await assertAssignmentOwner(req, res, assignmentId);
+    if (!assignment) return;
+
+    const task = await PlagiarismTask.findOne({
       where: { assignment_id: assignmentId },
-      include: [
-        { model: SubmissionFile, as: 'files' },
-        { model: User, as: 'student', attributes: ['id', 'real_name', 'username'] }
-      ],
-      order: [['id', 'ASC']]
+      order: [['id', 'DESC']]
     });
-    
-    // 只取有文件且未被清理的提交
-    const validSubmissions = submissions.filter(s => {
-      const files = s.Files || s.files || [];
-      return files.length > 0 && !files[0].is_cleaned;
-    });
-    
-    if (validSubmissions.length < 2) {
-      return success(res, { total: 0, results: [] }, '提交人数不足，至少需要2人才能查重');
+    if (!task) {
+      return success(res, { task: null });
     }
-    
-    // 4. 构建所有文件路径映射
-    const submissionMap = {};
-    for (const sub of validSubmissions) {
-      const files = sub.Files || sub.files || [];
-      submissionMap[sub.id] = {
-        studentName: sub.student?.real_name || sub.student?.username || '未知',
-        filePath: files[0].file_path
-      };
+
+    const payload = { task: formatTask(task) };
+
+    // 任务完成后附带汇总（可疑Top20、学生最高分等，与旧版同步接口返回结构一致）
+    if (task.status === 'done') {
+      payload.summary = await plagiarismService.buildAssignmentSummary(task.assignment_id);
+      payload.summary.total = task.total_submissions;
     }
-    
-    // 5. 逐对检测
-    const allResults = [];
-    const total = validSubmissions.length;
-    let completed = 0;
-    
-    // 更新状态为处理中
-    await PlagiarismResult.update(
-      { status: 'processing' },
-      { where: { assignment_id: assignmentId } }
+
+    return success(res, payload);
+
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * 取消进行中的查重任务
+ * POST /api/plagiarism/task/cancel/:assignmentId
+ */
+exports.cancelTask = async (req, res, next) => {
+  try {
+    const { assignmentId } = req.params;
+
+    const assignment = await assertAssignmentOwner(req, res, assignmentId);
+    if (!assignment) return;
+
+    const [updated] = await PlagiarismTask.update(
+      { status: 'cancelled', finished_at: new Date() },
+      { where: { assignment_id: assignmentId, status: ['pending', 'processing'] } }
     );
-    
-    for (const sourceSub of validSubmissions) {
-      const sourcePath = submissionMap[sourceSub.id].filePath;
-      const candidatePaths = validSubmissions
-        .filter(s => s.id !== sourceSub.id)
-        .map(s => submissionMap[s.id].filePath);
-      
-      if (candidatePaths.length === 0) continue;
-      
-      try {
-        const detectionResult = await detectionService.detect({
-          sourcePath: sourcePath,
-          candidatePaths: candidatePaths,
-          assignmentId: parseInt(assignmentId),
-          submissionId: sourceSub.id
-        });
-        
-        // 保存结果
-        for (const detResult of detectionResult.results || []) {
-          // 找到对应的 comparedWithId
-          const matchedEntry = Object.entries(submissionMap).find(
-            ([id, entry]) => entry.filePath === detResult.candidate
-          );
-          if (!matchedEntry) continue;
-          
-          const comparedWithId = parseInt(matchedEntry[0]);
-          
-          const [plagResult] = await PlagiarismResult.upsert({
-            assignment_id: parseInt(assignmentId),
-            submission_id: sourceSub.id,
-            compared_with_id: comparedWithId,
-            similarity_score: detResult.similarity_score || 0,
-            image_hash_score: detResult.image_hash_score || 0,
-            graph_similarity: detResult.graph_similarity || 0,
-            text_similarity: detResult.text_similarity || 0,
-            orb_match_count: detResult.orb_match_count || 0,
-            is_isomorphic: detResult.is_isomorphic ? 1 : 0,
-            is_suspicious: detResult.is_suspicious ? 1 : 0,
-            details: detResult.details || null,
-            status: detResult.error ? 'error' : 'done',
-            error_message: detResult.error || null,
-            checked_at: new Date()
-          });
-          
-          allResults.push({
-            id: plagResult.id,
-            submissionId: sourceSub.id,
-            comparedWithId: comparedWithId,
-            studentName: submissionMap[sourceSub.id].studentName,
-            comparedWithName: submissionMap[comparedWithId].studentName,
-            similarityScore: detResult.similarity_score || 0,
-            isSuspicious: detResult.is_suspicious || false
-          });
-        }
-      } catch (e) {
-        console.error(`查重失败 submission=${sourceSub.id}: ${e.message}`);
-      }
-      
-      completed++;
+    if (!updated) {
+      return fail(res, '没有进行中的查重任务', 422);
     }
-    
-    // 6. 按相似度降序排列，取前20条最可疑的
-    const suspiciousResults = allResults
-      .filter(r => r.isSuspicious)
-      .sort((a, b) => b.similarityScore - a.similarityScore)
-      .slice(0, 20);
-    
-    // 统计每个学生的最高相似度
-    const studentMaxScores = {};
-    for (const r of allResults) {
-      if (!studentMaxScores[r.submissionId] || r.similarityScore > studentMaxScores[r.submissionId]) {
-        studentMaxScores[r.submissionId] = r.similarityScore;
-      }
-    }
-    
-    // 构建学生姓名映射
-    const studentNameMap = {};
-    for (const [id, entry] of Object.entries(submissionMap)) {
-      studentNameMap[id] = entry.studentName;
-    }
-    
-    return success(res, {
-      total: total,
-      completed: completed,
-      totalComparisons: allResults.length,
-      suspiciousCount: allResults.filter(r => r.isSuspicious).length,
-      suspiciousResults: suspiciousResults,
-      studentMaxScores: studentMaxScores,
-      studentNameMap: studentNameMap
-    }, `全班查重完成，检测 ${completed} 份提交，发现 ${suspiciousResults.length} 条可疑结果`);
-    
+    // processing 中的任务由 worker 在下一轮比对前感知并停止
+    return success(res, null, '查重任务已取消');
+
   } catch (error) {
     next(error);
   }
@@ -309,11 +295,11 @@ exports.batchCheckAll = async (req, res, next) => {
 exports.getPlagiarismResults = async (req, res, next) => {
   try {
     const { assignmentId, submissionId } = req.params;
-    
+
     const results = await PlagiarismResult.findAll({
       where: { assignment_id: assignmentId, submission_id: submissionId },
       include: [{
-        model: require('../models/Submission'),
+        model: Submission,
         as: 'comparedWith',
         include: [{
           model: User,
@@ -323,8 +309,8 @@ exports.getPlagiarismResults = async (req, res, next) => {
       }],
       order: [['similarity_score', 'DESC']]
     });
-    
-    const formattedResults = results.map(r => ({
+
+    const detailed = results.map(r => ({
       id: r.id,
       comparedWithId: r.compared_with_id,
       studentName: r.comparedWith?.student?.real_name || r.comparedWith?.student?.username || '未知',
@@ -338,13 +324,13 @@ exports.getPlagiarismResults = async (req, res, next) => {
       status: r.status,
       checkedAt: r.checked_at
     }));
-    
+
     return success(res, {
       assignmentId: parseInt(assignmentId),
       submissionId: parseInt(submissionId),
-      results: formattedResults
+      results: detailed
     });
-    
+
   } catch (error) {
     next(error);
   }
@@ -357,21 +343,21 @@ exports.getPlagiarismResults = async (req, res, next) => {
 exports.getMaxPlagiarismScore = async (req, res, next) => {
   try {
     const { assignmentId, submissionId } = req.params;
-    
+
     const result = await PlagiarismResult.findOne({
       where: { assignment_id: assignmentId, submission_id: submissionId, status: 'done' },
       order: [['similarity_score', 'DESC']]
     });
-    
+
     if (!result) {
       return success(res, { maxSimilarity: 0, status: 'none' });
     }
-    
+
     return success(res, {
       maxSimilarity: parseFloat(result.similarity_score),
       status: 'done'
     });
-    
+
   } catch (error) {
     next(error);
   }
@@ -384,7 +370,7 @@ exports.getMaxPlagiarismScore = async (req, res, next) => {
 exports.getAssignmentSummary = async (req, res, next) => {
   try {
     const { assignmentId } = req.params;
-    
+
     const results = await PlagiarismResult.findAll({
       where: { assignment_id: assignmentId, status: 'done' },
       attributes: [
@@ -393,14 +379,14 @@ exports.getAssignmentSummary = async (req, res, next) => {
       ],
       group: ['submission_id']
     });
-    
+
     const summary = {};
     for (const r of results) {
       summary[r.submission_id] = parseFloat(r.getDataValue('max_similarity'));
     }
-    
+
     return success(res, { summary });
-    
+
   } catch (error) {
     next(error);
   }

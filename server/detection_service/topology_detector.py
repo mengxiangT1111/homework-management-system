@@ -8,6 +8,9 @@ import numpy as np
 import networkx as nx
 import os
 import json
+import hashlib
+import threading
+from collections import OrderedDict
 from typing import Dict, List, Tuple, Any, Optional
 
 from image_preprocessor import (
@@ -57,6 +60,49 @@ DEFAULT_WEIGHTS = {
 }
 
 
+# 支持的图像扩展名
+IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.bmp', '.gif', '.webp', '.tiff', '.tif']
+
+
+class FingerprintLRUCache:
+    """
+    文件指纹 LRU 缓存（线程安全）
+
+    同一文件在全班两两比对中会被反复用作源/候选，
+    pHash/预处理图/OCR/图结构提取只需做一次。
+    键可以是 (路径, mtime, size) 元信息键（命中免读文件），或 "md5:<内容哈希>" 内容键
+    （COS 重新下载的临时文件路径变了也能按内容命中）。
+    """
+
+    def __init__(self, max_size: int = 300):
+        self._max = max_size
+        self._store = OrderedDict()
+        self._lock = threading.Lock()
+        self.hits = 0
+        self.misses = 0
+
+    def get(self, key):
+        with self._lock:
+            if key in self._store:
+                self._store.move_to_end(key)
+                self.hits += 1
+                return self._store[key]
+            self.misses += 1
+            return None
+
+    def put(self, key, value):
+        with self._lock:
+            self._store[key] = value
+            self._store.move_to_end(key)
+            while len(self._store) > self._max:
+                self._store.popitem(last=False)
+
+    def stats(self) -> Dict[str, int]:
+        with self._lock:
+            return {'size': len(self._store), 'max_size': self._max,
+                    'hits': self.hits, 'misses': self.misses}
+
+
 class TopologyDetector:
     """拓扑图查重检测器"""
     
@@ -91,100 +137,58 @@ class TopologyDetector:
         
         # 初始化图提取器
         self.graph_extractor = GraphExtractor()
+
+        # 文件指纹缓存（按内容哈希键控，全班比对时同一文件只提取一次）
+        self.fp_cache = FingerprintLRUCache(
+            max_size=int(os.environ.get('FINGERPRINT_CACHE_SIZE', '300')))
     
     def detect(self,
                source_path: str,
                candidate_paths: List[str]) -> Dict[str, Any]:
         """
         执行多级渐进式查重检测
-        
+
         Args:
-            source_path: 源文件路径（相对路径，如 uploads/202607/xxx.png）
-            candidate_paths: 候选文件路径列表（相对路径）
-            
+            source_path: 源文件路径（绝对路径，或相对 upload_dir 的路径）
+            candidate_paths: 候选文件路径列表
+
         Returns:
             检测结果
         """
-        # 构建绝对路径
-        src_abs_path = self._resolve_path(source_path)
-        if not os.path.exists(src_abs_path):
+        src_fp = self._get_fingerprint(self._resolve_path(source_path))
+        if src_fp['load_error']:
             return {
                 'source': source_path,
-                'error': f"源文件不存在: {src_abs_path}",
+                'error': f"源文件不存在或加载失败: {src_fp['load_error']}",
                 'top_similarity': 0,
                 'total_compared': len(candidate_paths),
-                'results': [{'candidate': cp, 'error': '源文件不存在', 'similarity_score': 0} for cp in candidate_paths]
+                'results': [{'candidate': cp, 'error': '源文件不存在或加载失败', 'similarity_score': 0} for cp in candidate_paths]
             }
-        
-        # 检查文件格式是否支持
-        src_ext = os.path.splitext(src_abs_path)[1].lower()
-        supported_formats = ['.png', '.jpg', '.jpeg', '.bmp', '.gif', '.webp', '.tiff', '.tif']
-        if src_ext not in supported_formats:
-            # 非图像格式，也检查候选文件是否都是非图像，如果是则用哈希比对
+
+        # 非图像源且候选全为非图像 → 按文件哈希/文本比对
+        if not src_fp['is_image']:
             all_non_image = True
             for cp in candidate_paths:
-                cp_ext = os.path.splitext(cp)[1].lower()
-                if cp_ext in supported_formats:
+                if os.path.splitext(cp)[1].lower() in IMAGE_EXTS:
                     all_non_image = False
                     break
             if all_non_image:
-                return self._compare_by_file_hash(source_path, candidate_paths)
-            # 有图片候选，继续走图像检测流程（会尝试加载图片，失败会降级）
-        
-        # 加载源图像
-        try:
-            src_img, src_gray = load_image(src_abs_path)
-        except Exception as e:
-            return {
-                'source': source_path,
-                'error': f"源图像加载失败: {e}",
-                'top_similarity': 0,
-                'total_compared': len(candidate_paths),
-                'results': [{'candidate': cp, 'error': '源图像加载失败', 'similarity_score': 0} for cp in candidate_paths]
-            }
-        
-        # 预处理源图像
-        src_processed = preprocess(src_gray)
-        src_edges = detect_edges(src_processed)
-        src_binary = binarize(src_processed)
-        
-        # 计算源图像的pHash
-        try:
-            src_phash = compute_phash(src_abs_path)
-        except:
-            src_phash = None
-        
-        # 对源图像进行OCR（如启用）
-        src_ocr_results = []
-        if self.ocr:
-            try:
-                src_ocr_raw = self.ocr.ocr(src_abs_path, cls=True)
-                src_ocr_results = self._parse_ocr_results(src_ocr_raw)
-            except Exception as e:
-                print(f"源图像OCR失败: {e}")
-        
-        # 提取源图像的图结构
-        try:
-            src_extraction = self.graph_extractor.extract(src_gray, src_edges, src_ocr_results)
-            src_graph = src_extraction['graph']
-            src_nodes = src_extraction['nodes']
-            src_edges_list = src_extraction['edges']
-        except Exception as e:
-            print(f"源图像图结构提取失败: {e}")
-            src_graph = nx.Graph()
-            src_nodes = []
-            src_edges_list = []
-        
-        # 逐一对候选图像进行比对
+                return self._compare_by_file_hash(source_path, candidate_paths, src_fp)
+            # 有图片候选，继续走图像检测流程（加载失败会降级）
+
+        # 逐一对候选进行比对（候选指纹走缓存，同一文件多次参与比对只提取一次）
         results = []
         for cand_path in candidate_paths:
             try:
-                result = self._compare_single(
-                    cand_path, src_abs_path, src_phash, src_processed, src_edges,
-                    src_ocr_results, src_graph, src_nodes, src_edges_list
-                )
-                if result:
-                    results.append(result)
+                cand_fp = self._get_fingerprint(self._resolve_path(cand_path))
+                if cand_fp['load_error']:
+                    results.append({
+                        'candidate': cand_path,
+                        'error': f"候选文件不存在或加载失败: {cand_fp['load_error']}",
+                        'similarity_score': 0
+                    })
+                    continue
+                results.append(self._compare_fingerprints(cand_path, src_fp, cand_fp))
             except Exception as e:
                 print(f"与 {cand_path} 比对失败: {e}")
                 results.append({
@@ -192,100 +196,177 @@ class TopologyDetector:
                     'error': str(e),
                     'similarity_score': 0
                 })
-        
+
         # 按相似度降序排列
         results.sort(key=lambda x: x.get('similarity_score', 0), reverse=True)
-        
+
         # 获取最高的相似度
         top_similarity = results[0]['similarity_score'] if results else 0
-        
+
         return {
             'source': source_path,
             'top_similarity': top_similarity,
             'total_compared': len(results),
             'results': results
         }
-    
-    def _compare_by_file_hash(self, source_path: str, candidate_paths: List[str]) -> Dict[str, Any]:
+
+    def _get_fingerprint(self, abs_path: str) -> Dict[str, Any]:
         """
-        基于文件哈希和文本内容的比对（用于非图像文件）
+        获取文件指纹（带 LRU 缓存）
+
+        先用 (路径, mtime, size) 元信息键查询（命中免读文件）；
+        未命中则计算内容 MD5 后按 "md5:<哈希>" 内容键再查一次
+        （同一内容重新下载的临时文件也能命中），仍未命中才做完整提取。
         """
-        import hashlib
-        import zipfile
-        import re
-        
-        src_abs_path = self._resolve_path(source_path)
-        results = []
-        
-        # 计算源文件MD5
+        if not os.path.exists(abs_path):
+            return self._empty_fingerprint(abs_path, '文件不存在')
+        stat = os.stat(abs_path)
+        meta_key = (abs_path, stat.st_mtime_ns, stat.st_size)
+        cached = self.fp_cache.get(meta_key)
+        if cached is not None:
+            return cached
+
+        md5 = self._file_md5(abs_path)
+        if md5:
+            by_content = self.fp_cache.get('md5:' + md5)
+            if by_content is not None:
+                self.fp_cache.put(meta_key, by_content)
+                return by_content
+
+        fp = self._compute_fingerprint(abs_path, md5)
+        self.fp_cache.put(meta_key, fp)
+        if md5:
+            self.fp_cache.put('md5:' + md5, fp)
+        return fp
+
+    @staticmethod
+    def _empty_fingerprint(abs_path: str, error: str) -> Dict[str, Any]:
+        return {
+            'abs_path': abs_path, 'load_error': error, 'md5': None,
+            'is_image': False, 'phash': None, 'processed': None, 'edges': None,
+            'ocr_results': [], 'graph': nx.Graph(), 'nodes': [], 'edges_list': [],
+            'doc_text': '', 'doc_images': []
+        }
+
+    @staticmethod
+    def _file_md5(abs_path: str) -> Optional[str]:
         try:
-            with open(src_abs_path, 'rb') as f:
-                src_hash = hashlib.md5(f.read()).hexdigest()
-        except:
-            src_hash = None
-        
-        # 提取源文件文本内容（如果是docx）
-        src_text = ""
-        src_images = []
-        src_ext = os.path.splitext(src_abs_path)[1].lower()
-        if src_ext in ['.docx', '.doc']:
-            src_text = self._extract_docx_text(src_abs_path)
-            src_images = self._extract_docx_images(src_abs_path)
-        
+            h = hashlib.md5()
+            with open(abs_path, 'rb') as f:
+                for chunk in iter(lambda: f.read(1 << 20), b''):
+                    h.update(chunk)
+            return h.hexdigest()
+        except Exception:
+            return None
+
+    def _compute_fingerprint(self, abs_path: str, md5: Optional[str] = None) -> Dict[str, Any]:
+        """提取文件指纹（pHash/预处理图/OCR/图结构，或 docx 文本与内嵌图）"""
+        fp = self._empty_fingerprint(abs_path, None)
+        if md5 is None:
+            md5 = self._file_md5(abs_path)
+        if not md5:
+            fp['load_error'] = '文件读取失败'
+            return fp
+        fp['md5'] = md5
+
+        ext = os.path.splitext(abs_path)[1].lower()
+        fp['is_image'] = ext in IMAGE_EXTS
+
+        if fp['is_image']:
+            try:
+                _, gray = load_image(abs_path)
+            except Exception as e:
+                fp['load_error'] = f'图像加载失败: {e}'
+                return fp
+            fp['processed'] = preprocess(gray)
+            fp['edges'] = detect_edges(fp['processed'])
+            try:
+                fp['phash'] = compute_phash(abs_path)
+            except Exception:
+                fp['phash'] = None
+            if self.ocr:
+                try:
+                    fp['ocr_results'] = self._parse_ocr_results(self.ocr.ocr(abs_path, cls=True))
+                except Exception as e:
+                    print(f"OCR失败 {abs_path}: {e}")
+            try:
+                extraction = self.graph_extractor.extract(gray, fp['edges'], fp['ocr_results'])
+                fp['graph'] = extraction['graph']
+                fp['nodes'] = extraction['nodes']
+                fp['edges_list'] = extraction['edges']
+            except Exception as e:
+                print(f"图结构提取失败 {abs_path}: {e}")
+        elif ext in ['.docx', '.doc']:
+            fp['doc_text'] = self._extract_docx_text(abs_path)
+            fp['doc_images'] = self._extract_docx_images(abs_path)
+        return fp
+    
+    def _compare_by_file_hash(self, source_path: str, candidate_paths: List[str],
+                              src_fp: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        基于文件哈希和文本内容的比对（用于非图像文件，指纹走缓存）
+        """
+        if src_fp is None:
+            src_fp = self._get_fingerprint(self._resolve_path(source_path))
+        results = []
+
         for cand_path in candidate_paths:
-            cand_abs_path = self._resolve_path(cand_path)
+            cand_fp = self._get_fingerprint(self._resolve_path(cand_path))
+            if cand_fp['load_error']:
+                results.append({
+                    'candidate': cand_path,
+                    'error': cand_fp['load_error'],
+                    'similarity_score': 0
+                })
+                continue
+
             similarity_score = 0
             text_similarity = 0
             image_similarity = 0
             matched_imgs = 0
-            
-            if src_hash and os.path.exists(cand_abs_path):
-                try:
-                    with open(cand_abs_path, 'rb') as f:
-                        cand_hash = hashlib.md5(f.read()).hexdigest()
-                    
-                    if src_hash == cand_hash:
-                        # 完全相同的文件
-                        similarity_score = 100
-                        text_similarity = 100
-                        image_similarity = 100
-                        matched_imgs = len(src_images)
+
+            if src_fp['md5'] and src_fp['md5'] == cand_fp['md5']:
+                # 完全相同的文件
+                similarity_score = 100
+                text_similarity = 100
+                image_similarity = 100
+                matched_imgs = len(src_fp['doc_images'])
+            else:
+                # 不同文件，智能计算相似度
+                cand_ext = os.path.splitext(cand_fp['abs_path'])[1].lower()
+                if cand_ext in ['.docx', '.doc']:
+                    src_text = src_fp['doc_text']
+                    src_images = src_fp['doc_images']
+                    cand_text = cand_fp['doc_text']
+                    cand_images = cand_fp['doc_images']
+
+                    # 计算文本相似度
+                    if src_text and cand_text:
+                        text_similarity = self._compute_text_similarity(src_text, cand_text)
+
+                    # 计算图片相似度
+                    if src_images and cand_images:
+                        image_similarity, max_img_sim, matched_imgs = self._compare_docx_images(src_images, cand_images)
+
+                    # 智能权重计算
+                    has_text = bool(src_text and cand_text)
+                    has_images = bool(src_images and cand_images)
+
+                    if has_text and has_images:
+                        # 图文混合：各占50%
+                        similarity_score = text_similarity * 0.5 + image_similarity * 0.5
+                    elif has_text:
+                        # 纯文字：只计算文本相似度
+                        similarity_score = text_similarity
+                    elif has_images:
+                        # 纯图片：只计算图片相似度
+                        similarity_score = image_similarity
                     else:
-                        # 不同文件，智能计算相似度
-                        cand_ext = os.path.splitext(cand_abs_path)[1].lower()
-                        if cand_ext in ['.docx', '.doc']:
-                            cand_text = self._extract_docx_text(cand_abs_path)
-                            cand_images = self._extract_docx_images(cand_abs_path)
-                            
-                            # 计算文本相似度
-                            if src_text and cand_text:
-                                text_similarity = self._compute_text_similarity(src_text, cand_text)
-                            
-                            # 计算图片相似度
-                            if src_images and cand_images:
-                                image_similarity, max_img_sim, matched_imgs = self._compare_docx_images(src_images, cand_images)
-                            
-                            # 智能权重计算
-                            has_text = bool(src_text and cand_text)
-                            has_images = bool(src_images and cand_images)
-                            
-                            if has_text and has_images:
-                                # 图文混合：各占50%
-                                similarity_score = text_similarity * 0.5 + image_similarity * 0.5
-                            elif has_text:
-                                # 纯文字：只计算文本相似度
-                                similarity_score = text_similarity
-                            elif has_images:
-                                # 纯图片：只计算图片相似度
-                                similarity_score = image_similarity
-                            else:
-                                # 都没有
-                                similarity_score = 10
-                        else:
-                            similarity_score = 10
-                except:
-                    similarity_score = 0
-            
+                        # 都没有
+                        similarity_score = 10
+                else:
+                    similarity_score = 10
+
             results.append({
                 'candidate': cand_path,
                 'similarity_score': similarity_score,
@@ -295,12 +376,12 @@ class TopologyDetector:
                 'graph_similarity': 0,
                 'is_isomorphic': similarity_score == 100,
                 'is_suspicious': similarity_score > 50,
-                'doc_type': 'text' if src_text and not src_images else ('image' if src_images and not src_text else 'mixed')
+                'doc_type': 'text' if src_fp['doc_text'] and not src_fp['doc_images'] else ('image' if src_fp['doc_images'] and not src_fp['doc_text'] else 'mixed')
             })
-        
+
         results.sort(key=lambda x: x.get('similarity_score', 0), reverse=True)
         top_similarity = results[0]['similarity_score'] if results else 0
-        
+
         return {
             'source': source_path,
             'top_similarity': top_similarity,
@@ -308,35 +389,21 @@ class TopologyDetector:
             'results': results
         }
     
-    def _compare_single(self,
-                        cand_path: str,
-                        src_abs_path: str,
-                        src_phash: Optional[str],
-                        src_processed: np.ndarray,
-                        src_edges: np.ndarray,
-                        src_ocr_results: List[Dict],
-                        src_graph: nx.Graph,
-                        src_nodes: List,
-                        src_edges_list: List) -> Dict[str, Any]:
+    def _compare_fingerprints(self,
+                              cand_path: str,
+                              src_fp: Dict[str, Any],
+                              cand_fp: Dict[str, Any]) -> Dict[str, Any]:
         """
-        单个候选对源图的比对
-        
+        单个候选对源图的比对（基于预提取的指纹，避免重复加载/提取）
+
+        Args:
+            cand_path: 候选文件原始路径标识（用于结果回传）
+            src_fp: 源文件指纹
+            cand_fp: 候选文件指纹
+
         Returns:
             比对结果
         """
-        cand_abs_path = self._resolve_path(cand_path)
-        if not os.path.exists(cand_abs_path):
-            return {
-                'candidate': cand_path,
-                'error': f"候选文件不存在: {cand_abs_path}",
-                'similarity_score': 0
-            }
-        
-        # 加载候选图像
-        cand_img, cand_gray = load_image(cand_abs_path)
-        cand_processed = preprocess(cand_gray)
-        cand_edges = detect_edges(cand_processed)
-        
         result = {
             'candidate': cand_path,
             'similarity_score': 0,
@@ -348,48 +415,39 @@ class TopologyDetector:
             'is_suspicious': False,
             'details': {}
         }
-        
+
         # ========== 第一级：感知哈希初筛 ==========
-        cand_phash = None
-        try:
-            cand_phash = compute_phash(cand_abs_path)
-            if src_phash and cand_phash:
-                hash_dist = hamming_distance(src_phash, cand_phash)
-                hash_score = max(0, (1 - hash_dist / len(src_phash)) * 100)
-                result['image_hash_score'] = hash_score
-                
-                # 如果哈希距离太大，直接跳过后续检测
-                if hash_dist > self.thresholds['phash_skip']:
-                    result['similarity_score'] = hash_score * 0.3
-                    return result
-        except Exception as e:
-            print(f"pHash计算失败: {e}")
-        
+        if src_fp['phash'] and cand_fp['phash']:
+            hash_dist = hamming_distance(src_fp['phash'], cand_fp['phash'])
+            hash_score = max(0, (1 - hash_dist / len(src_fp['phash'])) * 100)
+            result['image_hash_score'] = hash_score
+
+            # 如果哈希距离太大，直接跳过后续检测
+            if hash_dist > self.thresholds['phash_skip']:
+                result['similarity_score'] = hash_score * 0.3
+                result['is_suspicious'] = result['similarity_score'] > self.thresholds['overall_suspect']
+                return result
+
         # ========== 第二级：ORB特征匹配 ==========
+        orb_count = 0
+        orb_score = 0.0
         try:
-            orb_count, orb_score = compute_orb_similarity(src_processed, cand_processed)
+            orb_count, orb_score = compute_orb_similarity(src_fp['processed'], cand_fp['processed'])
             result['orb_match_count'] = orb_count
         except Exception as e:
             print(f"ORB匹配失败: {e}")
-            orb_count = 0
-        
-        # ========== 第三级：OCR文本提取与比对 ==========
-        cand_ocr_results = []
-        if self.ocr:
+
+        # ========== 第三级：OCR文本比对 ==========
+        if self.ocr and src_fp['ocr_results'] and cand_fp['ocr_results']:
             try:
-                cand_ocr_raw = self.ocr.ocr(cand_abs_path, cls=True)
-                cand_ocr_results = self._parse_ocr_results(cand_ocr_raw)
-                result['text_similarity'] = compute_text_similarity(src_ocr_results, cand_ocr_results)
+                result['text_similarity'] = compute_text_similarity(src_fp['ocr_results'], cand_fp['ocr_results'])
             except Exception as e:
-                print(f"候选图像OCR失败: {e}")
-        
-        # ========== 第四级：图结构提取与比对 ==========
+                print(f"文本相似度计算失败: {e}")
+
+        # ========== 第四级：图结构比对 ==========
+        src_graph = src_fp['graph']
+        cand_graph = cand_fp['graph']
         try:
-            cand_extraction = self.graph_extractor.extract(cand_gray, cand_edges, cand_ocr_results)
-            cand_graph = cand_extraction['graph']
-            cand_nodes = cand_extraction['nodes']
-            cand_edges_list = cand_extraction['edges']
-            
             # 如果没有提取到节点，使用ORB结果作为图相似度
             if len(cand_graph.nodes()) == 0 or len(src_graph.nodes()) == 0:
                 result['graph_similarity'] = orb_score
@@ -404,44 +462,43 @@ class TopologyDetector:
                     'ged_similarity': struct_result.get('ged_similarity', 0),
                     'is_isomorphic': struct_result.get('is_isomorphic', False)
                 }
-                
+
                 # 节点类型分布比对
                 type_similarities = compare_node_types(src_graph, cand_graph)
                 result['details']['node_type_similarities'] = type_similarities
-                
+
                 # 公共子图信息
                 common = find_common_subgraph(src_graph, cand_graph)
                 result['details']['common_nodes'] = len(common.nodes())
                 result['details']['common_edges'] = common.number_of_edges()
-                
+
                 result['details']['src_nodes'] = [
-                    {'id': n.id, 'type': n.type, 'label': n.label} for n in src_nodes
+                    {'id': n.id, 'type': n.type, 'label': n.label} for n in src_fp['nodes']
                 ]
                 result['details']['cand_nodes'] = [
-                    {'id': n.id, 'type': n.type, 'label': n.label} for n in cand_nodes
+                    {'id': n.id, 'type': n.type, 'label': n.label} for n in cand_fp['nodes']
                 ]
-                
+
         except Exception as e:
-            print(f"图结构提取或比对失败: {e}")
+            print(f"图结构比对失败: {e}")
             result['graph_similarity'] = orb_score
-        
+
         # ========== 综合评分 ==========
         result['similarity_score'] = self._compute_overall_score(result)
-        
-        # 如果所有指标都是0（OCR/图结构都失败），用pHash和ORB兜底
+
+        # 如果所有指标都是0（OCR/图结构都失败），用pHash兜底
         if result['similarity_score'] == 0 and result['image_hash_score'] == 0 and result['orb_match_count'] == 0:
-            # 尝试直接用pHash评分
             try:
-                hash_sim = phash_similarity(src_abs_path, cand_abs_path)
+                hash_sim = phash_similarity(src_fp['abs_path'], cand_fp['abs_path'])
                 result['similarity_score'] = hash_sim
                 result['image_hash_score'] = hash_sim
-            except:
+            except Exception:
                 pass
-        
+
         # ========== 可疑判定 ==========
         result['is_suspicious'] = result['similarity_score'] > self.thresholds['overall_suspect']
         result['is_highly_suspicious'] = result['similarity_score'] > self.thresholds['overall_high_suspect']
-        
+
         return result
     
     def _compute_overall_score(self, result: Dict[str, Any]) -> float:

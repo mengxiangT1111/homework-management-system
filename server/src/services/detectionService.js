@@ -29,8 +29,9 @@ const detectionService = {
   /**
    * 执行查重检测
    * @param {Object} params - 检测参数
-   * @param {string} params.sourcePath - 源文件路径（相对路径）
+   * @param {string} params.sourcePath - 源文件路径（建议传 ensureLocalFile 物化后的本地绝对路径，COS 文件 Python 侧无法访问）
    * @param {string[]} params.candidatePaths - 候选文件路径列表
+   * @param {number} [params.timeout] - 本次调用超时（毫秒），默认 DETECTION_TIMEOUT
    * @returns {Promise<Object>} 检测结果
    */
   async detect(params) {
@@ -40,8 +41,8 @@ const detectionService = {
         candidate_paths: params.candidatePaths,
         assignment_id: params.assignmentId,
         submission_id: params.submissionId
-      });
-      
+      }, { timeout: params.timeout });
+
       return response.data;
     } catch (error) {
       if (error.response) {

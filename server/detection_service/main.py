@@ -88,6 +88,7 @@ class HealthResponse(BaseModel):
     version: str
     upload_dir: str
     ocr_enabled: bool
+    fingerprint_cache: Dict[str, int] = {}
 
 
 # ========== API端点 ==========
@@ -110,16 +111,18 @@ async def health_check():
         status="healthy",
         version="1.0.0",
         upload_dir=UPLOAD_DIR,
-        ocr_enabled=detector.ocr is not None
+        ocr_enabled=detector.ocr is not None,
+        fingerprint_cache=detector.fp_cache.stats()
     )
 
 
 @app.post("/api/detect", response_model=DetectResponse)
-async def detect_plagiarism(request: DetectRequest):
+def detect_plagiarism(request: DetectRequest):
     """
-    执行查重检测
-    
-    - **source_path**: 源文件路径（相对路径）
+    执行查重检测（同步端点，FastAPI 自动放入线程池执行，
+    避免长检测阻塞事件循环导致 /api/health 无响应）
+
+    - **source_path**: 源文件路径（绝对路径或相对 upload_dir 路径）
     - **candidate_paths**: 候选文件路径列表
     """
     logger.info(f"收到检测请求: source={request.source_path}, candidates={len(request.candidate_paths)}")
@@ -237,7 +240,7 @@ async def get_visualization(source_file: str, candidate_file: str):
 
 
 @app.post("/api/preview-extraction")
-async def preview_extraction(file_path: str):
+def preview_extraction(file_path: str):
     """
     预览图结构提取结果
     

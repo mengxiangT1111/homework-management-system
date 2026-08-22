@@ -149,8 +149,10 @@ export const uploadApi = {
 
 // ===== 查重 =====
 export const plagiarismApi = {
-  check: (assignmentId, submissionId) => request.post(`/plagiarism/check/${assignmentId}/${submissionId}`),
-  batchCheck: (assignmentId) => request.post(`/plagiarism/batch-check/${assignmentId}`, undefined, { timeout: 600000 }),
+  check: (assignmentId, submissionId) => request.post(`/plagiarism/check/${assignmentId}/${submissionId}`, undefined, { timeout: 600000 }),
+  batchCheck: (assignmentId) => request.post(`/plagiarism/batch-check/${assignmentId}`),
+  taskStatus: (assignmentId) => request.get(`/plagiarism/task/status/${assignmentId}`),
+  taskCancel: (assignmentId) => request.post(`/plagiarism/task/cancel/${assignmentId}`),
   results: (assignmentId, submissionId) => request.get(`/plagiarism/results/${assignmentId}/${submissionId}`),
   maxScore: (assignmentId, submissionId) => request.get(`/plagiarism/max-score/${assignmentId}/${submissionId}`),
   assignmentSummary: (assignmentId) => request.get(`/plagiarism/assignment-summary/${assignmentId}`),
