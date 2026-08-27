@@ -30,7 +30,10 @@
         <el-col :xs="12" :md="6">
           <div class="stat-card">
             <div class="stat-label">我的班级</div>
-            <div class="stat-value">{{ stats.classCount || 0 }}</div>
+            <div
+              class="stat-value stat-value--name"
+              :title="classNames.length ? classNames.join('、') : '尚未加入班级'"
+            >{{ classNames.length ? classNames.join('、') : '—' }}</div>
           </div>
         </el-col>
         <el-col :xs="12" :md="6">
@@ -83,10 +86,11 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { Clock, Tickets } from '@element-plus/icons-vue'
-import { statsApi, assignmentApi } from '@/api'
+import { statsApi, assignmentApi, classApi } from '@/api'
 
 const stats = ref({})
 const pending = ref([])
+const classNames = ref([])
 const loading = ref(true)
 const loadError = ref(false)
 
@@ -100,10 +104,17 @@ async function loadData() {
   loading.value = true
   loadError.value = false
   // allSettled 保留部分成功：仅全部失败才进入错误态
-  const [s, res] = await Promise.allSettled([statsApi.student(), assignmentApi.list({ pageSize: 50 })])
+  const [s, res, c] = await Promise.allSettled([
+    statsApi.student(),
+    assignmentApi.list({ pageSize: 50 }),
+    classApi.myClasses()
+  ])
   if (s.status === 'fulfilled') stats.value = s.value.data
   if (res.status === 'fulfilled') {
     pending.value = res.value.data.list.filter(a => !a.my_submission && !a.is_overdue).slice(0, 5)
+  }
+  if (c.status === 'fulfilled') {
+    classNames.value = c.value.data.map(x => x.name)
   }
   loadError.value = s.status === 'rejected' && res.status === 'rejected'
   loading.value = false
@@ -113,6 +124,16 @@ onMounted(loadData)
 </script>
 
 <style scoped>
+/* 班级名称卡片：文字替代大数字，超长单行截断并靠 title 提示全名 */
+.stat-card .stat-value.stat-value--name {
+  font-size: 20px;
+  line-height: 1.4;
+  letter-spacing: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
 .todo-item {
   display: flex; justify-content: space-between; align-items: center;
   padding: 14px; border-radius: 8px; background: var(--bg);
