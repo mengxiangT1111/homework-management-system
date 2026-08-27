@@ -103,6 +103,6 @@ async function changePwd() {
 <style scoped>
 .avatar-area { text-align: center; padding: 20px 0; }
 .big-avatar { background: var(--primary); color: white; font-size: 32px; font-weight: 600; margin-bottom: 16px; }
-.avatar-area h3 { margin: 8px 0; }
+.avatar-area h3 { margin: 8px 0; justify-content: center; }
 .username { color: var(--text-light); font-size: 13px; margin-top: 8px; }
 </style>

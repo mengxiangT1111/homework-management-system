@@ -95,7 +95,7 @@ onMounted(loadData)
   width: 56px; height: 56px; margin: 0 auto;
   border-radius: var(--radius-lg); background: var(--brand-50); color: var(--brand-600);
 }
-.class-card h3 { margin: 12px 0 6px; }
+.class-card h3 { margin: 12px 0 6px; justify-content: center; }
 .class-grade { color: var(--text-light); font-size: 13px; }
 .class-teacher { color: var(--text-light); font-size: 13px; margin-top: 4px; }
 </style>
