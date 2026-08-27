@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import router from '@/router'
+import { useAuthStore } from '@/stores/auth'
 
 const request = axios.create({
   baseURL: '/api',
@@ -18,6 +19,9 @@ request.interceptors.request.use(
   },
   error => Promise.reject(error)
 )
+
+// 401 跳转去重：并发多个请求同时 401 时只弹一次提示、只跳转一次
+let redirectingToLogin = false
 
 // 响应拦截：统一处理
 request.interceptors.response.use(
@@ -37,10 +41,20 @@ request.interceptors.response.use(
     if (error.response) {
       const { status, data } = error.response
       if (status === 401) {
-        ElMessage.error(data?.message || '登录已过期，请重新登录')
-        localStorage.removeItem('token')
-        localStorage.removeItem('user')
-        router.push('/login')
+        if (!redirectingToLogin) {
+          redirectingToLogin = true
+          ElMessage.error(data?.message || '登录已过期，请重新登录')
+          // 必须同步清空 Pinia 内存态：只清 localStorage 的话 isLoggedIn 仍为 true，
+          // 路由守卫会把 /login 重定向回业务页，形成 401 死循环
+          //（useAuthStore 在回调内运行时调用，规避与 auth store 的模块循环依赖）
+          try {
+            useAuthStore().logout()
+          } catch (e) {
+            localStorage.removeItem('token')
+            localStorage.removeItem('user')
+          }
+          router.push('/login').finally(() => { redirectingToLogin = false })
+        }
       } else if (status === 403) {
         ElMessage.error(data?.message || '权限不足')
       } else {

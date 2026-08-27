@@ -1,17 +1,17 @@
 /**
  * 文件路径转可访问 URL
- * 兼容两种格式：
- *   cos://homeworks/xxx → 腾讯云COS URL
- *   uploads/xxx         → 后端静态服务
+ * 统一走后端授权下载接口 /api/files/download：
+ *   - 后端先校验文件归属（学生仅本人提交文件/本班样例，教师限本人作业），
+ *     未授权的 path 返回 403，不再依赖"路径不可猜"做安全防线；
+ *   - COS 文件由后端 302 到短时效签名 URL（比裸公共 URL 泄露面小）；
+ *   - 本地文件由后端流式返回。
+ * iframe/img/video 标签无法带 Authorization 头，因此 URL 上追加 ?token=。
  */
-
-// COS 公共读 URL 前缀，来源 client/.env 的 VITE_COS_BASE（换桶时改那里，与 server/.env 的 COS_BUCKET/COS_REGION 保持一致）
-const COS_BASE = import.meta.env.VITE_COS_BASE || 'https://mengxiang-1405756754.cos.ap-beijing.myqcloud.com'
 
 /**
  * 解析文件路径为可访问的 URL
- * @param {string} filePath 数据库中的 file_path
- * @returns {string} 可访问的完整 URL
+ * @param {string} filePath 数据库中的 file_path（cos://homeworks/xxx 或 uploads/xxx）
+ * @returns {string} 可访问的 URL
  */
 export function fileUrl(filePath) {
   if (!filePath) return ''
@@ -21,15 +21,8 @@ export function fileUrl(filePath) {
   // 归一化历史数据中误拼的前导斜杠（如 '/cos://...'、'//uploads/...'），
   // 否则浏览器会把 '//xxx' 当协议相对 URL，误将 uploads 解析为域名
   p = p.replace(/^\/+/, '')
-  // COS 路径（公共读，无需认证）
-  if (p.startsWith('cos://')) {
-    return COS_BASE + '/' + p.substring(6)
-  }
-  // 本地路径（走 vite 代理到后端）：
-  // 后端 /uploads 接口需要登录，img/iframe 标签不会带 Authorization 头，
-  // 因此统一追加 ?token= 供直接引用
   const token = typeof localStorage !== 'undefined' ? localStorage.getItem('token') : ''
-  return '/' + p + (token ? `?token=${encodeURIComponent(token)}` : '')
+  return `/api/files/download?path=${encodeURIComponent(p)}${token ? `&token=${encodeURIComponent(token)}` : ''}`
 }
 
 /**

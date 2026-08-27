@@ -29,6 +29,8 @@ export const useNotificationStore = defineStore('notification', {
     },
     async remove(id) {
       await notificationApi.remove(id)
+      // 删除的可能是未读通知，重新拉取角标数
+      this.fetchUnreadCount()
     }
   }
 })

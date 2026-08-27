@@ -83,7 +83,8 @@ function getExt(name) {
 function handleFileChange(file) {
   const raw = file.raw
   if (!raw) return
-  const ext = getExt(raw.name)
+  // jpeg 与 jpg 视为同一格式（accept 放行了 .jpeg，校验需同步归一化，否则前后矛盾）
+  const ext = getExt(raw.name) === 'jpeg' ? 'jpg' : getExt(raw.name)
   if (props.allowedFormats.length > 0 && !props.allowedFormats.includes(ext)) {
     ElMessage.warning(`${raw.name} 格式不支持（仅支持：${props.allowedFormats.join(', ')}）`)
     return
@@ -126,6 +127,10 @@ async function startUpload() {
     const results = fileList.map(f => f.result)
     emit('uploaded', results)
   } catch (e) {
+    // 失败的文件状态复位为待上传，用户可重试（否则进度条永远显示"上传中"）
+    for (const item of fileList) {
+      if (item.status === 'uploading') item.status = 'pending'
+    }
     ElMessage.error('上传失败：' + (e.message || '未知错误'))
   } finally {
     uploading.value = false

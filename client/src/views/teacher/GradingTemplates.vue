@@ -10,10 +10,10 @@
     <!-- 筛选 -->
     <div class="card-section">
       <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">
-        <el-select v-model="filterSubject" placeholder="科目筛选" clearable style="width:140px" @change="loadList">
+        <el-select v-model="filterSubject" placeholder="科目筛选" clearable style="width:140px" @change="search">
           <el-option v-for="s in subjects" :key="s" :label="s" :value="s" />
         </el-select>
-        <el-select v-model="filterStatus" placeholder="状态筛选" clearable style="width:140px" @change="loadList">
+        <el-select v-model="filterStatus" placeholder="状态筛选" clearable style="width:140px" @change="search">
           <el-option label="草稿" value="draft" />
           <el-option label="已发布" value="published" />
           <el-option label="已停用" value="disabled" />
@@ -245,6 +245,8 @@ async function loadList() {
     ElMessage.error(e.response?.data?.message || '加载模板列表失败')
   } finally { loading.value = false }
 }
+// 筛选切换须回到第 1 页，避免停留在大页码时列表空白
+function search() { page.value = 1; loadList() }
 
 function handlePage(p) { page.value = p; loadList() }
 

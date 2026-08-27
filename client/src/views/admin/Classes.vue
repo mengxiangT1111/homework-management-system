@@ -9,13 +9,13 @@
 
     <div class="card-section">
       <div class="filter-bar">
-        <el-select v-model="schoolFilter" placeholder="全部学校" clearable style="width:180px" @change="loadData">
+        <el-select v-model="schoolFilter" placeholder="全部学校" clearable style="width:180px" @change="search">
           <el-option v-for="s in schools" :key="s.id" :label="s.name" :value="s.id" />
         </el-select>
-        <el-input v-model="keyword" placeholder="搜索班级名称/年级" clearable style="width:240px" @keyup.enter="loadData" @clear="loadData">
+        <el-input v-model="keyword" placeholder="搜索班级名称/年级" clearable style="width:240px" @keyup.enter="search" @clear="search">
           <template #prefix><el-icon><Search /></el-icon></template>
         </el-input>
-        <el-button type="primary" @click="loadData">搜索</el-button>
+        <el-button type="primary" @click="search">搜索</el-button>
       </div>
 
       <el-table :data="list" stripe>
@@ -161,6 +161,8 @@ async function loadData() {
   list.value = res.data.list
   total.value = res.data.total
 }
+// 搜索/筛选须回到第 1 页：否则停留在大页码时结果不足一页会显示空白
+function search() { page.value = 1; loadData() }
 function handlePage(p) { page.value = p; loadData() }
 
 async function loadTeachers(schoolId) {
