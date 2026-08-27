@@ -143,8 +143,13 @@ async function extractSubmissionText(submission) {
 exports.uploadReference = async (req, res, next) => {
   try {
     if (!req.file) return fail(res, '请上传 Word 文件', 422);
-    const text = await mammoth.extractRawText({ path: req.file.path });
-    return success(res, { text: text.value, filePath: req.file.path.replace(/\\/g, '/') }, '解析成功');
+    try {
+      const text = await mammoth.extractRawText({ path: req.file.path });
+      return success(res, { text: text.value, filePath: req.file.path.replace(/\\/g, '/') }, '解析成功');
+    } finally {
+      // 临时文件用后即删（内容已提取为文本，磁盘不需要保留）
+      fs.promises.unlink(req.file.path).catch(() => {});
+    }
   } catch (err) {
     return fail(res, 'Word 文件解析失败，请确认文件格式正确', 422);
   }

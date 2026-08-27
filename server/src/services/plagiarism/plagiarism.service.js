@@ -8,7 +8,7 @@ const {
   Submission, SubmissionFile, User, PlagiarismResult, PlagiarismTask
 } = require('../../models');
 const detectionService = require('../detectionService');
-const { ensureLocalFile } = require('../../utils/fileStorage').helpers;
+const { isCOSPath, ensureLocalFile } = require('../../utils/fileStorage').helpers;
 
 // 单次 detect 调用（1 个源 vs 多个候选）的超时，默认 10 分钟
 const DETECT_CALL_TIMEOUT = Number(process.env.PLAGIARISM_DETECT_TIMEOUT || '600000');
@@ -114,23 +114,27 @@ function finishTask(taskId, fields) {
  * @returns {Promise<{cancelled?: boolean, total?: number, totalComparisons?: number}>}
  */
 async function processTask(task) {
-  // 1. 检测服务健康（不可用按可重试错误抛出，走队列退避重试）
-  const healthy = await detectionService.healthCheck();
-  if (!healthy) {
-    throw new Error('查重检测服务未启动（Python :8000）');
-  }
-
-  // 2. 加载提交并物化文件到本地（COS → 本地临时文件；每个文件只下载一次，
-  //    后续所有比对复用同一路径，Python 侧指纹缓存才能命中）
-  const entries = await loadValidSubmissionEntries(task.assignment_id);
-  const localEntries = [];
-  for (const entry of entries) {
-    try {
-      localEntries.push({ ...entry, localPath: await ensureLocalFile(entry.filePath) });
-    } catch (e) {
-      console.warn(`[查重队列] 作业${task.assignment_id} 提交${entry.submissionId} 文件物化失败，跳过: ${e.message}`);
+  const tmpFilesToClean = []; // COS 物化产生的本地临时文件，结束时统一清理
+  try {
+    // 1. 检测服务健康（不可用按可重试错误抛出，走队列退避重试）
+    const healthy = await detectionService.healthCheck();
+    if (!healthy) {
+      throw new Error('查重检测服务未启动（Python :8000）');
     }
-  }
+
+    // 2. 加载提交并物化文件到本地（COS → 本地临时文件；每个文件只下载一次，
+    //    后续所有比对复用同一路径，Python 侧指纹缓存才能命中）
+    const entries = await loadValidSubmissionEntries(task.assignment_id);
+    const localEntries = [];
+    for (const entry of entries) {
+      try {
+        const localPath = await ensureLocalFile(entry.filePath);
+        if (isCOSPath(entry.filePath)) tmpFilesToClean.push(localPath);
+        localEntries.push({ ...entry, localPath });
+      } catch (e) {
+        console.warn(`[查重队列] 作业${task.assignment_id} 提交${entry.submissionId} 文件物化失败，跳过: ${e.message}`);
+      }
+    }
 
   const n = localEntries.length;
   await PlagiarismTask.update(
@@ -175,6 +179,8 @@ async function processTask(task) {
         if (!target) continue;
         await upsertPairRows(task.assignment_id, source, target, detResult);
         completed++;
+        // 与 upsertPairRows 写入的 status='error' 行对齐，否则进度页失败数失真
+        if (detResult.error) failed++;
       }
     } catch (e) {
       // 单个源整批失败不拖垮任务：记 error 行，继续下一源
@@ -186,8 +192,10 @@ async function processTask(task) {
       }
     }
 
+    // 进度回写同时续租 locked_at：单源检测最坏可达 10 分钟，
+    // 不续租会被僵死回收器（阈值 60 分钟内）误判重跑
     await PlagiarismTask.update(
-      { completed_pairs: completed, failed_pairs: failed },
+      { completed_pairs: completed, failed_pairs: failed, locked_at: new Date() },
       { where: { id: task.id } }
     );
   }
@@ -207,6 +215,13 @@ async function processTask(task) {
     console.log(`[查重队列] 任务 ${task.id} 在收尾时已被取消，保留取消状态`);
   }
   return { total: n, totalComparisons: summary.totalComparisons };
+  } finally {
+    // 清理 COS 物化的临时文件（取消/失败路径同样需要清理，否则磁盘随查重线性泄漏）
+    const fs = require('fs');
+    for (const p of tmpFilesToClean) {
+      fs.promises.unlink(p).catch(() => {});
+    }
+  }
 }
 
 /**

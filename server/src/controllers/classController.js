@@ -1,5 +1,5 @@
 const { Op } = require('sequelize');
-const { sequelize, Class, User, ClassStudent, Course, School } = require('../models');
+const { sequelize, Class, User, ClassStudent, Course, CourseAssistant, School } = require('../models');
 const { success, fail, paginate, normalizePage } = require('../utils/response');
 
 // 学校隔离条件：非管理员强制本校，管理员可按 school_id 参数筛选
@@ -169,6 +169,7 @@ exports.updateClass = async (req, res, next) => {
       if (teacher.school_id !== Number(newSchoolId)) return fail(res, '班主任必须属于该班级所在学校', 422);
     }
 
+    const oldSchoolId = cls.school_id;
     await cls.update({
       name: name || cls.name,
       grade: grade || cls.grade,
@@ -176,6 +177,11 @@ exports.updateClass = async (req, res, next) => {
       teacher_id: headTeacherId,
       description: description !== undefined ? description : cls.description
     });
+
+    // 课程表冗余了 school_id（教师/学生端按校过滤），班级转校时必须同步，否则课程在新校"消失"
+    if (newSchoolId !== oldSchoolId) {
+      await Course.update({ school_id: newSchoolId }, { where: { class_id: cls.id } });
+    }
     return success(res, cls, '更新成功');
   } catch (err) {
     next(err);
@@ -204,6 +210,19 @@ exports.getClassStudents = async (req, res, next) => {
   try {
     const cls = await Class.findByPk(req.params.id);
     if (!cls || foreignSchool(cls, req)) return fail(res, '班级不存在', 404);
+
+    // 学生只能看本班名单，且不返回联系方式（防同校任意学生遍历 class_id 批量拉取手机号/邮箱）
+    let isMember = false;
+    if (req.user.role === 'student') {
+      isMember = !!(await ClassStudent.findOne({
+        where: { class_id: cls.id, student_id: req.user.id }
+      }));
+      if (!isMember) return fail(res, '班级不存在', 404);
+    }
+    const attributes = req.user.role === 'student'
+      ? ['id', 'username', 'real_name', 'status']
+      : ['id', 'username', 'real_name', 'email', 'phone', 'status'];
+
     const students = await User.findAll({
       include: [{
         model: Class,
@@ -212,7 +231,7 @@ exports.getClassStudents = async (req, res, next) => {
         through: { attributes: ['position'] },
         required: true
       }],
-      attributes: ['id', 'username', 'real_name', 'email', 'phone', 'status'],
+      attributes,
       order: [['username', 'ASC']]
     });
     return success(res, { class: cls, students, count: students.length }, '获取成功');
@@ -325,7 +344,14 @@ exports.addStudents = async (req, res, next) => {
 exports.removeStudent = async (req, res, next) => {
   try {
     const { id, studentId } = req.params;
-    await ClassStudent.destroy({ where: { class_id: id, student_id: studentId } });
+    const record = await ClassStudent.findOne({ where: { class_id: id, student_id: studentId } });
+    if (!record) return fail(res, '该学生不在此班级中', 404);
+    await record.destroy();
+    // 同步清理该班所有课程下的课代表身份，否则退班学生仍可访问全班作业数据
+    const courseIds = (await Course.findAll({ where: { class_id: id }, attributes: ['id'] })).map(c => c.id);
+    if (courseIds.length) {
+      await CourseAssistant.destroy({ where: { student_id: studentId, course_id: { [Op.in]: courseIds } } });
+    }
     return success(res, null, '学生已移出班级');
   } catch (err) {
     next(err);
@@ -369,6 +395,11 @@ exports.leaveClass = async (req, res, next) => {
     const record = await ClassStudent.findOne({ where: { class_id: id, student_id: req.user.id } });
     if (!record) return fail(res, '你不在该班级中', 404);
     await record.destroy();
+    // 退出班级即失去课代表身份，防止退班后仍能访问该班课程作业
+    const courseIds = (await Course.findAll({ where: { class_id: id }, attributes: ['id'] })).map(c => c.id);
+    if (courseIds.length) {
+      await CourseAssistant.destroy({ where: { student_id: req.user.id, course_id: { [Op.in]: courseIds } } });
+    }
     return success(res, null, '已退出班级');
   } catch (err) {
     next(err);

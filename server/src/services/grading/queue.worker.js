@@ -12,7 +12,9 @@ const config = require('../../config/ai');
 
 const WORKER_ID = `${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
 const CLAIM_BATCH = 5;        // 单轮最多抢占任务数
-const STALLED_MINUTES = 10;   // 僵死任务判定阈值
+// 僵死任务判定阈值。须大于任务最坏合法执行时长（LLM 最坏约 12 分钟），
+// 否则长任务会被误回收导致双跑/结果互相覆盖；可用环境变量覆盖。
+const STALLED_MINUTES = Number(process.env.GRADING_STALLED_MINUTES || 30);
 let running = false;
 let reaperTimer = null;
 const activeTasks = new Set(); // 处理中的任务ID（并发控制）
@@ -55,14 +57,14 @@ async function markFailure(task, err) {
       `UPDATE grading_tasks
          SET status = 'pending', error_msg = :msg, locked_by = NULL, locked_at = NULL,
              next_run_at = DATE_ADD(NOW(), INTERVAL :delay SECOND)
-       WHERE id = :id`,
+       WHERE id = :id AND status = 'processing'`,
       { replacements: { msg: message, delay: delaySec, id: task.id } }
     );
     console.warn(`[批改队列] 任务 ${task.id} 第 ${attempt} 次失败（${message}），${delaySec}s 后重试`);
   } else {
     await GradingTask.update(
       { status: 'failed', error_msg: message, locked_by: null, locked_at: null },
-      { where: { id: task.id } }
+      { where: { id: task.id, status: 'processing' } }
     );
     console.error(`[批改队列] 任务 ${task.id} 最终失败：${message}`);
   }

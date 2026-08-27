@@ -3,7 +3,7 @@
  */
 const { Op } = require('sequelize');
 const {
-  Assignment, Course, Class, User, ClassStudent, Submission, Notification
+  sequelize, Assignment, Course, Class, User, ClassStudent, Submission, Notification
 } = require('../models');
 const { success, fail } = require('../utils/response');
 const { isOverdue, isValidFutureDate } = require('./assignmentController');
@@ -72,9 +72,20 @@ exports.classAssignmentsProgress = async (req, res, next) => {
     });
 
     const classSize = await ClassStudent.count({ where: { class_id: classId } });
+    // 只统计本班在读学生的提交（退班学生的历史提交不再计入，避免未交数为负/提交率超100%）
+    const classStudentIds = (await ClassStudent.findAll({
+      where: { class_id: classId }, attributes: ['student_id']
+    })).map(r => r.student_id);
+    // 一次聚合查询替代循环逐个 count（N+1）
+    const counts = assignments.length ? await Submission.findAll({
+      where: { assignment_id: { [Op.in]: assignments.map(a => a.id) }, student_id: { [Op.in]: classStudentIds } },
+      attributes: ['assignment_id', [sequelize.fn('COUNT', sequelize.col('id')), 'cnt']],
+      group: 'assignment_id'
+    }) : [];
+    const cntMap = new Map(counts.map(c => [c.assignment_id, Number(c.get('cnt'))]));
     const result = [];
     for (const a of assignments) {
-      const submittedCount = await Submission.count({ where: { assignment_id: a.id } });
+      const submittedCount = cntMap.get(a.id) || 0;
       const overdue = isOverdue(a);
       result.push({
         id: a.id,
@@ -84,7 +95,7 @@ exports.classAssignmentsProgress = async (req, res, next) => {
         is_overdue: overdue,
         total_students: classSize,
         submitted_count: submittedCount,
-        unsubmitted_count: classSize - submittedCount,
+        unsubmitted_count: Math.max(0, classSize - submittedCount),
         submit_rate: classSize > 0 ? Math.round((submittedCount / classSize) * 100) : 0
       });
     }
@@ -250,30 +261,39 @@ exports.classDownloadAll = async (req, res, next) => {
     const archiver = require('archiver');
     const fs = require('fs');
     const path = require('path');
+    const os = require('os');
 
     const zipName = `${assignment.title}_提交.zip`;
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(zipName)}"`);
 
     const archive = archiver('zip', { zlib: { level: 5 } });
-    archive.on('error', (err) => next(err));
+    // 响应头已发出，不能再走 next(err)（会触发 ERR_HTTP_HEADERS_SENT），直接断开连接
+    archive.on('error', () => { res.destroy(); });
+    res.on('close', () => { archive.abort(); });
     archive.pipe(res);
 
     const { ensureLocalFile } = require('../utils/fileStorage').helpers;
 
-    for (const sub of submissions) {
-      const folderName = `${sub.student.real_name}_${sub.student.username}`;
-      for (const file of sub.files) {
-        if (file.is_cleaned) continue; // 已清理的文件不再打包
-        try {
-          const abs = await ensureLocalFile(file.file_path);
-          archive.file(abs, { name: `${folderName}/${path.basename(file.original_name)}` });
-        } catch (e) {
-          console.warn('[负责人打包] 文件获取失败，跳过:', file.file_path, e.message);
+    const tmpFiles = [];
+    try {
+      for (const sub of submissions) {
+        const folderName = `${sub.student.real_name}_${sub.student.username}`.replace(/[\\/:*?"<>|]/g, '_');
+        for (const file of sub.files) {
+          if (file.is_cleaned) continue; // 已清理的文件不再打包
+          try {
+            const abs = await ensureLocalFile(file.file_path);
+            if (abs.startsWith(os.tmpdir())) tmpFiles.push(abs);
+            archive.file(abs, { name: `${folderName}/${path.basename(file.original_name)}` });
+          } catch (e) {
+            console.warn('[负责人打包] 文件获取失败，跳过:', file.file_path, e.message);
+          }
         }
       }
+      await archive.finalize();
+    } finally {
+      for (const p of tmpFiles) fs.promises.unlink(p).catch(() => {});
     }
-    await archive.finalize();
   } catch (err) {
     next(err);
   }

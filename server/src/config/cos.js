@@ -101,6 +101,22 @@ function deleteMultipleFromCOS(keys) {
 }
 
 /**
+ * 获取 COS 对象元信息（不下载内容），用于校验对象存在与真实大小
+ */
+function headObject(key) {
+  return new Promise((resolve, reject) => {
+    cosClient.headObject({
+      Bucket: cosConfig.Bucket,
+      Region: cosConfig.Region,
+      Key: key
+    }, (err, data) => {
+      if (err) return reject(err);
+      resolve(data && data.headers || data);
+    });
+  });
+}
+
+/**
  * 下载 COS 文件到本地（用于打包 zip 等）
  * 使用官方 downloadFile 分块下载，回调时文件已完整写入
  */
@@ -128,5 +144,6 @@ module.exports = {
   getSignedCOSUrl,
   deleteFromCOS,
   deleteMultipleFromCOS,
-  downloadFromCOS
+  downloadFromCOS,
+  headObject
 };

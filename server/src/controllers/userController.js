@@ -117,15 +117,18 @@ exports.createStudent = async (req, res, next) => {
 exports.resetPassword = async (req, res, next) => {
   try {
     const { id } = req.params;
-    let { new_password } = req.body;
+    const { new_password } = req.body;
     const user = await User.findByPk(id);
     if (!user) return fail(res, '用户不存在', 404);
-    if (!new_password) {
-      // 默认重置为固定默认密码
-      new_password = '123456';
+    // 不再提供固定默认密码：学号可枚举 + 固定弱密码 = 任何人可冒名登录
+    if (!new_password || typeof new_password !== 'string') {
+      return fail(res, '请提供新密码', 422);
     }
-    if (new_password.length < 6) {
-      return fail(res, '新密码长度不能少于 6 位', 422);
+    if (new_password.length < 6 || new_password.length > 64) {
+      return fail(res, '新密码长度需为 6-64 位', 422);
+    }
+    if (/^\d+$/.test(new_password)) {
+      return fail(res, '新密码不能为纯数字', 422);
     }
     await User.update(
       { password: await bcrypt.hash(new_password, 10) },

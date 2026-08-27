@@ -1,13 +1,15 @@
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const { Op } = require('sequelize');
 const archiver = require('archiver');
 const ExcelJS = require('exceljs');
 const {
-  Submission, SubmissionFile, Assignment, Course, Class, User, ClassStudent, Notification
+  sequelize, Submission, SubmissionFile, Assignment, Course, Class, User, ClassStudent, Notification
 } = require('../models');
 const { success, fail, paginate, normalizePage } = require('../utils/response');
 const { isOverdue } = require('./assignmentController');
+const { isCOSConfigured, headObject } = require('../config/cos');
 
 // 上传目录绝对路径
 const UPLOAD_DIR = path.resolve(path.join(__dirname, '../../', process.env.UPLOAD_DIR || 'uploads'));
@@ -47,6 +49,11 @@ exports.submitAssignment = async (req, res, next) => {
     if (!assignment) return fail(res, '作业不存在', 404);
     if (!assignment.course) return fail(res, '作业所属课程已不存在，无法提交', 422);
 
+    // 教师显式关闭的作业禁止提交（此前只查逾期，关闭状态被绕过）
+    if (assignment.status === 'closed') {
+      return fail(res, '作业已关闭，禁止提交', 422);
+    }
+
     // 逾期禁止提交
     if (isOverdue(assignment)) {
       return fail(res, '作业已逾期，禁止提交', 422);
@@ -84,11 +91,25 @@ exports.submitAssignment = async (req, res, next) => {
 
     // 校验文件真实存在 + 路径安全检查（防止路径穿越）
     for (const f of files) {
-      // COS 路径：格式 cos://homeworks/xxx，只做格式校验（对象存在性由上传接口保证）
+      // COS 路径：格式 cos://homeworks/xxx。用 headObject 校验对象存在并取真实大小，
+      // 不能只信客户端自报的 file_size（否则可伪造大小绕过教师设置的单文件上限）
       if (isCOSPath(f.file_path)) {
         const key = extractCOSKey(f.file_path);
-        if (!key || key.includes('..')) {
+        if (!key || key.includes('..') || !key.startsWith('homeworks/')) {
           return fail(res, `文件路径不合法`, 403);
+        }
+        if (isCOSConfigured) {
+          let head;
+          try {
+            head = await headObject(key);
+          } catch (e) {
+            return fail(res, `文件 ${f.original_name} 在对象存储中不存在，请重新上传`, 422);
+          }
+          const realSize = Number(head && head['content-length']) || 0;
+          if (realSize > assignment.max_size_mb * 1024 * 1024) {
+            return fail(res, `文件 ${f.original_name} 超过单文件上限 ${assignment.max_size_mb}MB`, 422);
+          }
+          f.file_size = realSize;
         }
         continue;
       }
@@ -113,39 +134,58 @@ exports.submitAssignment = async (req, res, next) => {
       f.file_size = realSize;
     }
 
-    // 创建或更新提交记录
-    const [submission, created] = await Submission.findOrCreate({
-      where: { assignment_id: id, student_id: req.user.id },
-      defaults: {
-        assignment_id: id,
-        student_id: req.user.id,
-        status: assignment.need_grading ? 'submitted' : 'graded',
-        submitted_at: new Date(),
-        remark: remark || null
-      }
+    // 已被批改（教师/AI 打过分的）提交禁止覆盖重交；教师"退回重做"(returned)除外。
+    // need_grading=false 的作业提交即 graded 但从未有人打分（score/graded_by 均为空），允许重交。
+    const existing = await Submission.findOne({
+      where: { assignment_id: id, student_id: req.user.id }
     });
-
-    if (!created) {
-      // 重新提交：删除旧文件记录
-      await SubmissionFile.destroy({ where: { submission_id: submission.id } });
-      submission.status = assignment.need_grading ? 'submitted' : 'graded';
-      submission.score = null;
-      submission.comment = null;
-      submission.submitted_at = new Date();
-      submission.remark = remark || null;
-      await submission.save();
+    if (existing && existing.status !== 'returned' &&
+        (existing.score !== null || existing.graded_by !== null)) {
+      return fail(res, '该作业已批改，不允许重新提交；如确需重交请联系老师退回', 422);
     }
 
-    // 批量创建文件记录
+    // 提交主流程事务化：避免"旧文件已删、新文件写入失败"产生零文件的已提交记录
     const fileRecords = files.map(f => ({
-      submission_id: submission.id,
+      submission_id: null, // 事务内回填
       original_name: f.original_name,
       file_path: f.file_path,
       file_size: f.file_size,
-      mime_type: f.mime_type || 'application/octet-stream',
+      mime_type: String(f.mime_type || 'application/octet-stream').slice(0, 100),
       file_hash: f.file_hash || null
     }));
-    await SubmissionFile.bulkCreate(fileRecords);
+    let submissionId = null;
+    let created = false;
+    await sequelize.transaction(async (t) => {
+      const [submission, wasCreated] = await Submission.findOrCreate({
+        where: { assignment_id: id, student_id: req.user.id },
+        defaults: {
+          assignment_id: id,
+          student_id: req.user.id,
+          status: assignment.need_grading ? 'submitted' : 'graded',
+          submitted_at: new Date(),
+          remark: remark || null
+        },
+        transaction: t
+      });
+      created = wasCreated;
+      submissionId = submission.id;
+
+      if (!wasCreated) {
+        // 重新提交：删除旧文件记录
+        await SubmissionFile.destroy({ where: { submission_id: submission.id }, transaction: t });
+        submission.status = assignment.need_grading ? 'submitted' : 'graded';
+        submission.score = null;
+        submission.comment = null;
+        submission.graded_by = null;
+        submission.submitted_at = new Date();
+        submission.remark = remark || null;
+        await submission.save({ transaction: t });
+      }
+      await SubmissionFile.bulkCreate(
+        fileRecords.map(r => ({ ...r, submission_id: submission.id })),
+        { transaction: t }
+      );
+    });
 
     // 通知教师有新提交
     await Notification.create({
@@ -156,7 +196,7 @@ exports.submitAssignment = async (req, res, next) => {
       related_id: assignment.id
     });
 
-    const result = await Submission.findByPk(submission.id, {
+    const result = await Submission.findByPk(submissionId, {
       include: [{ model: SubmissionFile, as: 'files' }]
     });
     return success(res, result, created ? '提交成功' : '已重新提交', created ? 201 : 200);
@@ -284,6 +324,7 @@ exports.remindUnsubmitted = async (req, res, next) => {
       include: [{ model: Course, as: 'course' }]
     });
     if (!assignment) return fail(res, '作业不存在', 404);
+    if (!assignment.course) return fail(res, '作业所属课程已不存在', 422);
     if (req.user.role === 'teacher' && assignment.teacher_id !== req.user.id) {
       return fail(res, '无权操作', 403);
     }
@@ -302,14 +343,16 @@ exports.remindUnsubmitted = async (req, res, next) => {
     const submittedSet = new Set(submittedIds);
 
     const unsubmitted = students.filter(s => !submittedSet.has(s.id));
-    for (const stu of unsubmitted) {
-      await Notification.create({
+    if (unsubmitted.length > 0) {
+      // 注意 type 不能用 'deadline'：系统自动截止提醒按 type='deadline' 去重，
+      // 手动催交若同类型会"顶掉"学生的官方 24 小时截止提醒
+      await Notification.bulkCreate(unsubmitted.map(stu => ({
         user_id: stu.id,
         title: '作业催交通知',
         content: `你尚未提交作业「${assignment.title}」，截止时间：${new Date(assignment.deadline).toLocaleString('zh-CN')}，请尽快提交！`,
-        type: 'deadline',
+        type: 'assignment',
         related_id: assignment.id
-      });
+      })));
     }
     return success(res, { reminded: unsubmitted.length }, `已向 ${unsubmitted.length} 名未交学生发送催交通知`);
   } catch (err) {
@@ -346,23 +389,32 @@ exports.downloadAll = async (req, res, next) => {
     res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(zipName)}"`);
 
     const archive = archiver('zip', { zlib: { level: 5 } });
-    archive.on('error', (err) => next(err));
+    // 响应头已发出，不能再走 next(err)（会触发 ERR_HTTP_HEADERS_SENT），直接断开连接让客户端感知失败
+    archive.on('error', () => { res.destroy(); });
+    // 客户端取消下载时终止打包，避免服务端空转
+    res.on('close', () => { archive.abort(); });
     archive.pipe(res);
 
-    // 按学生建文件夹（兼容 COS 与本地文件）
-    for (const sub of submissions) {
-      const folderName = `${sub.student.real_name}_${sub.student.username}`;
-      for (const file of sub.files) {
-        if (file.is_cleaned) continue; // 已清理的文件不再打包
-        try {
-          const abs = await ensureLocalFile(file.file_path);
-          archive.file(abs, { name: `${folderName}/${path.basename(file.original_name)}` });
-        } catch (e) {
-          console.warn('[打包下载] 文件获取失败，跳过:', file.file_path, e.message);
+    const tmpFiles = []; // COS 物化产生的临时文件，打包完成后清理
+    try {
+      // 按学生建文件夹（兼容 COS 与本地文件）
+      for (const sub of submissions) {
+        const folderName = sanitizeFileName(`${sub.student.real_name}_${sub.student.username}`);
+        for (const file of sub.files) {
+          if (file.is_cleaned) continue; // 已清理的文件不再打包
+          try {
+            const abs = await ensureLocalFile(file.file_path);
+            if (abs.startsWith(os.tmpdir())) tmpFiles.push(abs);
+            archive.file(abs, { name: `${folderName}/${sanitizeFileName(file.original_name)}` });
+          } catch (e) {
+            console.warn('[打包下载] 文件获取失败，跳过:', file.file_path, e.message);
+          }
         }
       }
+      await archive.finalize();
+    } finally {
+      for (const p of tmpFiles) fs.promises.unlink(p).catch(() => {});
     }
-    await archive.finalize();
   } catch (err) {
     next(err);
   }
@@ -376,6 +428,7 @@ exports.exportUnsubmittedExcel = async (req, res, next) => {
       include: [{ model: Course, as: 'course', include: [{ model: Class, as: 'class' }] }]
     });
     if (!assignment) return fail(res, '作业不存在', 404);
+    if (!assignment.course) return fail(res, '作业所属课程已不存在', 422);
     if (req.user.role === 'teacher' && assignment.teacher_id !== req.user.id) {
       return fail(res, '无权操作', 403);
     }

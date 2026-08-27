@@ -2,15 +2,19 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
 const aiGradingController = require('../controllers/aiGradingController');
 const { auth } = require('../middleware/auth');
 
 // Word 上传存储配置
+const TMP_DIR = path.join(__dirname, '../../uploads/tmp');
+// 确保临时目录存在（server.js 只创建 uploads/ 与 uploads/chunks，缺此目录时 multer 落盘直接 ENOENT）
+fs.mkdirSync(TMP_DIR, { recursive: true });
 const wordStorage = multer.diskStorage({
-  destination: path.join(__dirname, '../../uploads/tmp'),
+  destination: (req, file, cb) => cb(null, TMP_DIR),
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname);
-    cb(null, `reference_${Date.now()}${ext}`);
+    cb(null, `reference_${Date.now()}_${Math.random().toString(36).slice(2, 8)}${ext}`);
   }
 });
 const uploadWord = multer({

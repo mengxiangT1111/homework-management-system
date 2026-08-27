@@ -58,23 +58,8 @@ async function ensureLocalFile(filePath) {
 }
 
 /**
- * 批量解析文件 URL（给前端接口用）
- * POST /api/files/urls  { paths: ["cos://xxx", "uploads/xxx"] }
+ * 文件 URL 解析与授权下载接口已迁移至 controllers/fileController.js
+ * （统一按提交/样例归属做授权，COS 走短时效签名 URL）
  */
-const { success, fail } = require('../utils/response');
-
-exports.resolveUrls = async (req, res, next) => {
-  try {
-    const { paths } = req.body;
-    if (!Array.isArray(paths)) return fail(res, '参数 paths 必须为数组', 422);
-    const result = {};
-    for (const p of paths) {
-      result[p] = resolveFileUrl(p);
-    }
-    return success(res, result, '获取成功');
-  } catch (err) {
-    next(err);
-  }
-};
 
 module.exports.helpers = { isCOSPath, extractCOSKey, resolveFileUrl, ensureLocalFile };

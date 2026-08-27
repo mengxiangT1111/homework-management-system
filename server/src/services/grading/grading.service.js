@@ -16,9 +16,13 @@ const {
 const llmClient = require('./llmClient');
 const promptService = require('../prompt.service');
 const templateService = require('./template.service');
+const { isCOSPath, ensureLocalFile } = require('../../utils/fileStorage').helpers;
 const {
   safeParseJSON, parseGradingOutput, computeTotalScore, evaluateConfidence
 } = require('../../utils/gradingResultParser');
+
+// 学生作答注入提示词的最大长度（防超大文本打爆 token / 烧钱）
+const MAX_ANSWER_CHARS = 30000;
 
 function permanentError(message) {
   const e = new Error(message);
@@ -27,25 +31,33 @@ function permanentError(message) {
 }
 const r1 = x => Math.round(x * 10) / 10;
 
-// ===== 学生作答文本提取（txt/docx，与旧 aiGradingController 逻辑一致） =====
+// ===== 学生作答文本提取（txt/docx；COS 文件先物化到本地临时目录） =====
+// 返回 { text, tempFiles }：tempFiles 为本次物化产生的临时文件，调用方负责清理
 async function extractSubmissionText(submission) {
-  if (!submission || !submission.files || submission.files.length === 0) return '';
+  const tempFiles = [];
+  if (!submission || !submission.files || submission.files.length === 0) {
+    return { text: '', tempFiles };
+  }
   for (const file of submission.files) {
     const ext = path.extname(file.original_name).toLowerCase();
-    const absPath = path.join(__dirname, '../../../', file.file_path);
-    if (!fs.existsSync(absPath)) continue;
+    if (ext !== '.txt' && ext !== '.docx' && ext !== '.doc') continue;
+    let absPath;
+    try {
+      absPath = await ensureLocalFile(file.file_path);
+    } catch (e) { continue; } // 文件不存在/下载失败，尝试下一个
+    if (isCOSPath(file.file_path)) tempFiles.push(absPath);
     try {
       if (ext === '.txt') {
         const text = fs.readFileSync(absPath, 'utf-8');
-        if (text.trim()) return text;
+        if (text.trim()) return { text, tempFiles };
       }
       if (ext === '.docx' || ext === '.doc') {
         const result = await mammoth.extractRawText({ path: absPath });
-        if (result.value.trim()) return result.value;
+        if (result.value.trim()) return { text: result.value, tempFiles };
       }
     } catch (e) { continue; } // 单文件失败继续尝试下一个
   }
-  return '';
+  return { text: '', tempFiles };
 }
 
 // ===== 创建批量批改任务（异步，HTTP 立即返回） =====
@@ -113,45 +125,54 @@ async function processTask(task) {
   if (t.status !== 'processing') return; // 已被取消/完成，幂等退出
   if (!t.submission) throw permanentError('提交记录不存在');
 
-  // 1. 提取学生作答
-  const studentAnswer = await extractSubmissionText(t.submission);
-  if (!studentAnswer || !studentAnswer.trim()) {
-    throw permanentError('无法提取学生作答文本（仅支持 txt/docx 格式）');
-  }
-
-  // 2. 加载提示词（按 task.id 做确定性灰度路由）并渲染
-  const templateJSON = t.template_snapshot;
-  const prompt = await promptService.getActivePrompt(t.prompt_key, t.id);
-  const systemPrompt = promptService.renderSystemPrompt(prompt, templateJSON);
-  const userMessage = promptService.buildUserMessage(prompt, {
-    fullScore: templateJSON.full_score,
-    referenceAnswer: t.reference_answer,
-    gradingCriteria: t.grading_criteria,
-    studentAnswer,
-    mode: t.prompt_mode
-  });
-
-  // 3. 调 LLM（进程内允许一次"解析失败即重调"，仍失败交给队列退避重试）
-  let parsed = null;
-  let llmResp = null;
-  let parseRetries = 0;
-  for (let i = 0; i < 2 && !parsed; i++) {
-    parseRetries = i;
-    llmResp = await llmClient.chatCompletion({
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userMessage }
-      ],
-      temperature: 0.1,
-      maxTokens: 4096,
-      jsonMode: true
-    });
-    try {
-      parsed = parseGradingOutput(safeParseJSON(llmResp.content), templateJSON);
-    } catch (e) {
-      if (i === 1) throw new Error(`AI 返回解析失败：${e.message}`); // 可重试错误（非 permanent）
+  const tempFiles = []; // COS 物化产生的本地临时文件，任务结束（含失败）后清理
+  try {
+    // 1. 提取学生作答（COS 文件物化到本地）
+    const extracted = await extractSubmissionText(t.submission);
+    tempFiles.push(...extracted.tempFiles);
+    let studentAnswer = extracted.text;
+    if (!studentAnswer || !studentAnswer.trim()) {
+      throw permanentError('无法提取学生作答文本（仅支持 txt/docx 格式）');
     }
-  }
+    if (studentAnswer.length > MAX_ANSWER_CHARS) {
+      studentAnswer = studentAnswer.slice(0, MAX_ANSWER_CHARS) + '\n...（作答过长，已截断）';
+    }
+
+    // 2. 加载提示词（按 task.id 做确定性灰度路由）并渲染
+    const templateJSON = t.template_snapshot;
+    const prompt = await promptService.getActivePrompt(t.prompt_key, t.id);
+    const systemPrompt = promptService.renderSystemPrompt(prompt, templateJSON);
+    const userMessage = promptService.buildUserMessage(prompt, {
+      fullScore: templateJSON.full_score,
+      referenceAnswer: t.reference_answer,
+      gradingCriteria: t.grading_criteria,
+      studentAnswer,
+      mode: t.prompt_mode
+    });
+
+    // 3. 调 LLM（进程内允许一次"解析失败即重调"，仍失败交给队列退避重试）
+    let parsed = null;
+    let llmResp = null;
+    let parseRetries = 0;
+    for (let i = 0; i < 2 && !parsed; i++) {
+      parseRetries = i;
+      llmResp = await llmClient.chatCompletion({
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage }
+        ],
+        temperature: 0.1,
+        maxTokens: 4096,
+        jsonMode: true
+      });
+      // 心跳：LLM 单次调用最坏可耗时数分钟，续租防止被僵死回收器误判
+      GradingTask.update({ locked_at: new Date() }, { where: { id: t.id, status: 'processing' } }).catch(() => {});
+      try {
+        parsed = parseGradingOutput(safeParseJSON(llmResp.content), templateJSON);
+      } catch (e) {
+        if (i === 1) throw new Error(`AI 返回解析失败：${e.message}`); // 可重试错误（非 permanent）
+      }
+    }
 
   // 4. 服务端权威算分 + 置信度
   const total = computeTotalScore(parsed.dimensions, templateJSON);
@@ -217,6 +238,12 @@ async function processTask(task) {
   }
 
   return { total, confidence, needsReview, resultId };
+  } finally {
+    // 清理 COS 物化的临时文件（失败路径同样需要清理）
+    for (const p of tempFiles) {
+      fs.promises.unlink(p).catch(() => {});
+    }
+  }
 }
 
 // 高置信结果回写 submissions（沿用现有字段，现有页面无需改造即可看到分数）

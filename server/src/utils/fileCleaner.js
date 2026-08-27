@@ -118,6 +118,30 @@ async function cleanAbandonedChunks(maxAgeHours = 48) {
       } catch (e) { /* 单个目录失败不影响整体 */ }
     }
   }
+
+  // 同场清理：合并中转目录 merged/（秒传缓存，超期后收益趋零但占双倍磁盘）
+  // 与合并失败残留的 *.tmp 临时文件
+  const mergedDir = path.join(__dirname, '../../', process.env.UPLOAD_DIR || 'uploads', 'merged');
+  if (fs.existsSync(mergedDir)) {
+    for (const f of fs.readdirSync(mergedDir)) {
+      const p = path.join(mergedDir, f);
+      let st;
+      try {
+        st = fs.statSync(p);
+      } catch (e) {
+        continue;
+      }
+      // tmp 残留（异常进程留下的半成品）1 天即清；正常秒传缓存按同参数保留
+      const isTmp = p.endsWith('.tmp');
+      const fileCutoff = Date.now() - (isTmp ? 24 : Number(maxAgeHours)) * 60 * 60 * 1000;
+      if (st.isFile() && st.mtimeMs < fileCutoff) {
+        try {
+          fs.unlinkSync(p);
+          cleaned++;
+        } catch (e) { /* 单个文件失败不影响整体 */ }
+      }
+    }
+  }
   return cleaned;
 }
 

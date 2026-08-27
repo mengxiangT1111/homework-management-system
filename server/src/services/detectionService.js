@@ -9,6 +9,8 @@ const path = require('path');
 // 检测服务URL配置
 const DETECTION_SERVICE_URL = process.env.DETECTION_SERVICE_URL || 'http://localhost:8000';
 const DETECTION_TIMEOUT = parseInt(process.env.DETECTION_TIMEOUT || '60000', 10); // 60秒超时
+// 服务间鉴权 token，与 Python 侧 DETECTION_API_TOKEN 共享（未配置时双方使用相同默认值）
+const DETECTION_API_TOKEN = process.env.DETECTION_API_TOKEN || 'detection-dev-token';
 
 // 上传目录配置
 const UPLOAD_DIR = process.env.UPLOAD_DIR || 'uploads';
@@ -18,7 +20,8 @@ const apiClient = axios.create({
   baseURL: DETECTION_SERVICE_URL,
   timeout: DETECTION_TIMEOUT,
   headers: {
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
+    'X-API-Token': DETECTION_API_TOKEN
   }
 });
 

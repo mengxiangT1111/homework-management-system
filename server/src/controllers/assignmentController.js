@@ -108,6 +108,15 @@ exports.getAssignment = async (req, res, next) => {
       ]
     });
     if (!assignment) return fail(res, '作业不存在', 404);
+    if (!assignment.course) return fail(res, '作业所属课程已不存在', 422);
+
+    // 学生只能查看本班课程的作业（防遍历 id 拉取全校作业内容与样例文件）
+    if (req.user.role === 'student') {
+      const inClass = await ClassStudent.findOne({
+        where: { class_id: assignment.course.class_id, student_id: req.user.id }
+      });
+      if (!inClass) return fail(res, '无权查看该作业', 403);
+    }
 
     const item = assignment.toJSON();
     item.is_overdue = isOverdue(assignment);
@@ -119,6 +128,10 @@ exports.getAssignment = async (req, res, next) => {
         include: [{ model: SubmissionFile, as: 'files' }]
       });
       item.my_submission = sub;
+      // 教师邮箱属于联系方式，只对教师/管理员暴露
+      if (item.teacher) {
+        item.teacher = { id: item.teacher.id, real_name: item.teacher.real_name };
+      }
     }
 
     return success(res, item, '获取成功');

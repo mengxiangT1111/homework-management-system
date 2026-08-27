@@ -61,8 +61,20 @@ function parseGradingOutput(obj, templateJSON) {
       continue;
     }
 
-    let score = Number(hit.score);
-    if (!Number.isFinite(score)) { score = 0; clampCount++; }
+    // score 缺失/非数字（含 null、undefined、空串、乱码）一律视为"AI 未评分"：
+    // 计入 missingCount 触发人工复核，而不是被 Number(null)===0 静默判 0 分
+    let score = (hit.score === null || hit.score === undefined || hit.score === '')
+      ? NaN
+      : Number(hit.score);
+    if (!Number.isFinite(score)) {
+      missingCount++;
+      dimensions.push({
+        code: td.code, name: td.name, max_score: td.max_score,
+        score: null, level: null, evidence: '', deductions: [],
+        feedback: '（AI 未返回该维度有效分数，已标记人工复核）'
+      });
+      continue;
+    }
     if (score < 0) { score = 0; clampCount++; }
     if (score > td.max_score) { score = td.max_score; clampCount++; }
 

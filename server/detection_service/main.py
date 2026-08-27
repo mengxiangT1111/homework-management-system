@@ -3,7 +3,7 @@ Topology Plagiarism Detection Service
 FastAPI 服务入口 - 提供HTTP API供Node.js后端调用
 """
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
@@ -27,14 +27,31 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS配置
+# CORS：本服务只供 Node 后端服务间调用，浏览器不应跨域访问，故不放开通配源
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=[],
+    allow_credentials=False,
+    allow_methods=["POST", "GET"],
+    allow_headers=["X-API-Token", "Content-Type"],
 )
+
+# ===== 服务间鉴权 =====
+# 与 Node 侧共享同一环境变量 DETECTION_API_TOKEN；未配置时使用默认值（仅限本机回环可达）
+API_TOKEN = os.environ.get("DETECTION_API_TOKEN", "detection-dev-token")
+if API_TOKEN == "detection-dev-token":
+    logger.warning("DETECTION_API_TOKEN 未设置，使用默认开发 token，生产环境务必配置强随机值")
+
+
+@app.middleware("http")
+async def verify_token(request: Request, call_next):
+    # 健康检查放行（不返回业务数据）
+    if request.url.path == "/api/health":
+        return await call_next(request)
+    if request.headers.get("X-API-Token") != API_TOKEN:
+        return JSONResponse(status_code=401, content={"detail": "unauthorized"})
+    return await call_next(request)
+
 
 # 上传目录配置
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "uploads")))
@@ -58,8 +75,18 @@ def get_detector():
     return _detector
 
 
-# 存储检测任务状态
+# 存储检测任务状态（带上限的简单 LRU：全量结果很大，只写不删会内存单调增长直至 OOM）
+MAX_TASKS = 200
 detection_tasks: Dict[str, Dict[str, Any]] = {}
+_tasks_order: List[str] = []
+
+
+def _save_task(task_id: str, entry: Dict[str, Any]):
+    detection_tasks[task_id] = entry
+    _tasks_order.append(task_id)
+    while len(_tasks_order) > MAX_TASKS:
+        old = _tasks_order.pop(0)
+        detection_tasks.pop(old, None)
 
 
 # ========== 请求/响应模型 ==========
@@ -138,13 +165,13 @@ def detect_plagiarism(request: DetectRequest):
         # 执行检测
         detector = get_detector()
         result = detector.detect(request.source_path, request.candidate_paths)
-        
+
         # 存储结果
-        detection_tasks[task_id] = {
+        _save_task(task_id, {
             'source': request.source_path,
             'result': result,
             'timestamp': time.time()
-        }
+        })
         
         return DetectResponse(
             task_id=task_id,
@@ -165,8 +192,11 @@ async def get_result(task_id: str):
     """获取检测结果"""
     if task_id not in detection_tasks:
         raise HTTPException(status_code=404, detail="任务不存在")
-    
+
     task = detection_tasks[task_id]
+    if task.get('result') is None:
+        # pending/failed 的任务还没有结果，不能下标访问
+        raise HTTPException(status_code=409, detail=f"任务{task.get('status', 'pending')}")
     result = task['result']
     
     return DetectResponse(
@@ -190,12 +220,12 @@ async def batch_detect(requests: List[DetectRequest], background_tasks: Backgrou
     
     for req in requests:
         task_id = str(uuid.uuid4())
-        detection_tasks[task_id] = {
+        _save_task(task_id, {
             'source': req.source_path,
             'status': 'pending',
             'result': None,
             'timestamp': time.time()
-        }
+        })
         background_tasks.add_task(run_detection, task_id, req)
         task_ids.append(task_id)
     
@@ -243,12 +273,20 @@ async def get_visualization(source_file: str, candidate_file: str):
 def preview_extraction(file_path: str):
     """
     预览图结构提取结果
-    
+
     返回提取的节点和边
     """
     from image_preprocessor import load_image, preprocess, detect_edges
-    
-    abs_path = os.path.join(UPLOAD_DIR, file_path)
+
+    # 路径围栏：解析后的绝对路径必须仍在 UPLOAD_DIR 内，防止 ../ 逃逸读取任意文件
+    abs_path = os.path.normpath(os.path.join(UPLOAD_DIR, file_path))
+    allowed_root = os.path.normpath(UPLOAD_DIR)
+    try:
+        common = os.path.commonpath([abs_path, allowed_root])
+    except ValueError:
+        raise HTTPException(status_code=403, detail="非法路径")
+    if common != allowed_root:
+        raise HTTPException(status_code=403, detail="非法路径")
     if not os.path.exists(abs_path):
         raise HTTPException(status_code=404, detail="文件不存在")
     
@@ -281,4 +319,7 @@ def preview_extraction(file_path: str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+    # 默认只监听本机回环（Node 后端在本机调用）；跨容器部署时显式设置 DETECTION_HOST
+    host = os.environ.get("DETECTION_HOST", "127.0.0.1")
+    port = int(os.environ.get("DETECTION_PORT", "8000"))
+    uvicorn.run(app, host=host, port=port, log_level="info")

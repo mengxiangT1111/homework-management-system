@@ -12,7 +12,9 @@ const plagiarismService = require('./plagiarism.service');
 
 const WORKER_ID = `${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
 const CLAIM_BATCH = 1;         // 检测任务重，单轮只抢 1 个
-const STALLED_MINUTES = 30;    // 僵死任务判定阈值（60人班级检测可能耗时较长）
+// 僵死任务判定阈值：大班级（60人）合法执行可达数小时，阈值必须大于最坏合法时长，
+// 否则正常任务被回收重跑（配合 processTask 每源续租 locked_at）
+const STALLED_MINUTES = Number(process.env.PLAGIARISM_STALLED_MINUTES || 360);
 const POLL_INTERVAL = Number(process.env.PLAGIARISM_POLL_INTERVAL || '2000');
 let running = false;
 let reaperTimer = null;
@@ -56,14 +58,14 @@ async function markFailure(task, err) {
       `UPDATE plagiarism_tasks
          SET status = 'pending', error_msg = :msg, locked_by = NULL, locked_at = NULL,
              next_run_at = DATE_ADD(NOW(), INTERVAL 30 SECOND)
-       WHERE id = :id`,
+       WHERE id = :id AND status = 'processing'`,
       { replacements: { msg: message, id: task.id } }
     );
     console.warn(`[查重队列] 任务 ${task.id} 第 ${attempt} 次失败（${message}），30s 后重试`);
   } else {
     await PlagiarismTask.update(
       { status: 'failed', error_msg: message, locked_by: null, locked_at: null, finished_at: new Date() },
-      { where: { id: task.id } }
+      { where: { id: task.id, status: 'processing' } }
     );
     console.error(`[查重队列] 任务 ${task.id} 最终失败：${message}`);
   }

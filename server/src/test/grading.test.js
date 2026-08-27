@@ -219,3 +219,20 @@ test('灰度路由：边界值', () => {
   assert.strictEqual(decideCanary(5, 10), true);   // 5 < 10
   assert.strictEqual(decideCanary(10, 10), false); // 10 % 100 = 10，不小于 10
 });
+
+// ===== B1 回归：null/非数字分数不判 0 分，按未评分处理 =====
+
+test('结果解析：score=null 视为未评分（missingCount），不再静默判 0 分', () => {
+  const out = {
+    dimensions: [
+      { code: 'content', score: null, level: 'A', evidence: '', deductions: [], feedback: '' },
+      { code: 'lang', score: 'abc', level: 'B', evidence: '', deductions: [], feedback: '' }
+    ],
+    overall_feedback: 'x', improvement_advice: 'y', knowledge_errors: []
+  };
+  const r = parseGradingOutput(out, VALID_TPL);
+  assert.strictEqual(r.missingCount, 2);
+  assert.strictEqual(r.dimensions[0].score, null);
+  assert.strictEqual(r.dimensions[1].score, null);
+  assert.strictEqual(r.clampCount, 0);
+});

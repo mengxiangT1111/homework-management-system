@@ -532,23 +532,38 @@ class TopologyDetector:
     
     def _resolve_path(self, relative_path: str) -> str:
         """
-        解析相对路径为绝对路径
-        
+        解析相对路径为绝对路径（带路径围栏）
+
+        允许的根目录：upload_dir（本服务的数据目录）与系统临时目录
+        （Node 侧会把 COS 文件物化到 tempfile 再传入）。解析结果逃出这两个
+        目录的（如包含 ../ 的相对路径、任意绝对路径）一律拒绝。
+
         Args:
-            relative_path: 相对路径（如 uploads/202607/xxx.png）
-            
+            relative_path: 相对路径（如 uploads/202607/xxx.png）或允许目录内的绝对路径
+
         Returns:
-            绝对路径（统一使用正斜杠）
+            绝对路径
         """
+        import tempfile
+
         # 标准化路径分隔符
         relative_path = relative_path.replace('\\', '/')
-        # 如果已经是绝对路径，直接返回
+        # 如果已经是绝对路径，校验其落在允许目录内
         if os.path.isabs(relative_path):
-            return os.path.normpath(relative_path)
-        
-        # 否则拼接到上传目录根路径
-        full_path = os.path.join(self.upload_dir, relative_path)
-        return os.path.normpath(full_path)
+            full_path = os.path.normpath(relative_path)
+        else:
+            # 否则拼接到上传目录根路径
+            full_path = os.path.normpath(os.path.join(self.upload_dir, relative_path))
+
+        allowed_roots = [os.path.normpath(self.upload_dir), os.path.normpath(tempfile.gettempdir())]
+        for root in allowed_roots:
+            try:
+                if os.path.commonpath([full_path, root]) == root:
+                    return full_path
+            except ValueError:
+                # Windows 下不同盘符比较会抛 ValueError，继续尝试下一个根
+                continue
+        raise ValueError(f"非法路径: {relative_path} 不在允许的目录内")
     
     def _parse_ocr_results(self, ocr_raw: List) -> List[Dict]:
         """

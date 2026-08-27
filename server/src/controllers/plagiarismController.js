@@ -63,6 +63,11 @@ exports.checkPlagiarism = async (req, res, next) => {
       ]
     });
     if (!targetSubmission) return fail(res, '提交记录不存在', 404);
+    // submissionId 必须属于该作业：否则教师可用自己的作业ID + 他人作业的提交ID
+    // 把别的班学生文件拉进自己的查重（结果写入自己的作业下）
+    if (targetSubmission.assignment_id !== parseInt(assignmentId, 10)) {
+      return fail(res, '提交不属于该作业', 403);
+    }
 
     const otherSubmissions = await Submission.findAll({
       where: { assignment_id: assignmentId, id: { [Op.ne]: submissionId } },
@@ -296,6 +301,9 @@ exports.getPlagiarismResults = async (req, res, next) => {
   try {
     const { assignmentId, submissionId } = req.params;
 
+    const assignment = await assertAssignmentOwner(req, res, assignmentId);
+    if (!assignment) return;
+
     const results = await PlagiarismResult.findAll({
       where: { assignment_id: assignmentId, submission_id: submissionId },
       include: [{
@@ -344,6 +352,9 @@ exports.getMaxPlagiarismScore = async (req, res, next) => {
   try {
     const { assignmentId, submissionId } = req.params;
 
+    const assignment = await assertAssignmentOwner(req, res, assignmentId);
+    if (!assignment) return;
+
     const result = await PlagiarismResult.findOne({
       where: { assignment_id: assignmentId, submission_id: submissionId, status: 'done' },
       order: [['similarity_score', 'DESC']]
@@ -370,6 +381,9 @@ exports.getMaxPlagiarismScore = async (req, res, next) => {
 exports.getAssignmentSummary = async (req, res, next) => {
   try {
     const { assignmentId } = req.params;
+
+    const assignment = await assertAssignmentOwner(req, res, assignmentId);
+    if (!assignment) return;
 
     const results = await PlagiarismResult.findAll({
       where: { assignment_id: assignmentId, status: 'done' },
@@ -399,6 +413,10 @@ exports.getAssignmentSummary = async (req, res, next) => {
 exports.deleteResults = async (req, res, next) => {
   try {
     const { assignmentId, submissionId } = req.params;
+
+    const assignment = await assertAssignmentOwner(req, res, assignmentId);
+    if (!assignment) return;
+
     await PlagiarismResult.destroy({
       where: { assignment_id: assignmentId, submission_id: submissionId }
     });

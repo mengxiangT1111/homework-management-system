@@ -18,6 +18,9 @@ const DANGEROUS_EXTS = ['.html', '.htm', '.svg', '.js', '.exe', '.bat', '.cmd', 
 
 // 文件大小限制（500MB）
 const MAX_FILE_SIZE = 500 * 1024 * 1024;
+// 单片 5MB，分片总数/序号上限据此推算（防伪造 total 无限传分片塞满磁盘）
+const CHUNK_SIZE = 5 * 1024 * 1024;
+const MAX_CHUNK_INDEX = Math.ceil(MAX_FILE_SIZE / CHUNK_SIZE) + 1;
 
 // 确保目录存在
 [UPLOAD_DIR, CHUNK_DIR, MERGED_DIR].forEach(d => {
@@ -95,6 +98,9 @@ exports.uploadChunk = [
       if (!Number.isInteger(index) || index < 0) {
         return fail(res, '无效的分片序号 index', 422);
       }
+      if (index > MAX_CHUNK_INDEX) {
+        return fail(res, `分片序号超出上限（文件最大 ${MAX_FILE_SIZE / 1024 / 1024}MB）`, 422);
+      }
       return success(res, { hash, index }, `分片 ${index} 上传成功`);
     } catch (err) {
       next(err);
@@ -156,6 +162,9 @@ exports.mergeChunks = async (req, res, next) => {
     if (!Number.isInteger(totalNum) || totalNum < 1) {
       return fail(res, '分片总数参数非法', 422);
     }
+    if (totalNum > MAX_CHUNK_INDEX) {
+      return fail(res, `分片总数超出上限（文件最大 ${MAX_FILE_SIZE / 1024 / 1024}MB）`, 422);
+    }
 
     // 校验 hash 格式防止路径穿越
     if (!isValidHash(hash)) {
@@ -176,6 +185,7 @@ exports.mergeChunks = async (req, res, next) => {
     const ext = path.extname(filename).toLowerCase();
     const mergedPath = path.join(MERGED_DIR, hash);
     const chunkDir = path.join(CHUNK_DIR, hash);
+    let mergedSize = null; // 本次合并得到的磁盘真实大小（秒传路径为 null，下面 statSync 兜底）
 
     // 双重校验：确保路径在目标目录内
     if (!isPathContained(MERGED_DIR, hash) || !isPathContained(CHUNK_DIR, hash)) {
@@ -194,15 +204,22 @@ exports.mergeChunks = async (req, res, next) => {
         return fail(res, `分片不完整（${files.length}/${totalNum}），请续传缺失分片`, 422);
       }
 
-      const writeStream = fs.createWriteStream(mergedPath);
+      // 先写唯一临时名再原子改名：并发合并同一 hash 时两个请求写各自临时文件，
+      // 互不干扰，也不会误删对方已完成的产物（原先两个流写同一路径会字节交错）
+      const tmpPath = `${mergedPath}.${process.pid}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.tmp`;
+      const writeStream = fs.createWriteStream(tmpPath);
       for (let i = 0; i < totalNum; i++) {
         const chunkFile = path.join(chunkDir, `${hash}_${i}`);
         if (!fs.existsSync(chunkFile)) {
           writeStream.end();
+          fs.promises.unlink(tmpPath).catch(() => {});
           return fail(res, `分片 ${i} 缺失，请续传`, 422);
         }
         const buf = fs.readFileSync(chunkFile);
-        writeStream.write(buf);
+        // 处理写缓冲背压：磁盘写入慢于读取时等待 drain，避免整个文件积压内存
+        if (!writeStream.write(buf)) {
+          await new Promise(resolve => writeStream.once('drain', resolve));
+        }
       }
       writeStream.end();
       await new Promise((resolve) => writeStream.on('finish', resolve));
@@ -211,20 +228,34 @@ exports.mergeChunks = async (req, res, next) => {
       // 流式计算，避免大文件（上限 500MB）整体读入内存
       const actualHash = await new Promise((resolve, reject) => {
         const digest = crypto.createHash('md5');
-        const rs = fs.createReadStream(mergedPath);
+        const rs = fs.createReadStream(tmpPath);
         rs.on('data', chunk => digest.update(chunk));
         rs.on('end', () => resolve(digest.digest('hex')));
         rs.on('error', reject);
       });
       if (actualHash !== hash) {
-        fs.unlinkSync(mergedPath);
+        fs.unlinkSync(tmpPath);
         return fail(res, '文件校验失败，请重新上传', 422);
       }
 
-      // 合并完成，清理分片目录
+      // 以磁盘真实大小为准复核上限：body 里的 size 是客户端自报的，可伪造绕过
+      const realSize = fs.statSync(tmpPath).size;
+      if (realSize > MAX_FILE_SIZE) {
+        fs.unlinkSync(tmpPath);
+        return fail(res, `文件大小超出限制（最大 ${MAX_FILE_SIZE / 1024 / 1024}MB）`, 422);
+      }
+      mergedSize = realSize;
+
+      // 原子落位；目标已存在（并发方先完成，内容同 hash 必一致）时保留现有文件
       try {
-        fs.rmSync(chunkDir, { recursive: true, force: true });
-      } catch (e) { /* ignore */ }
+        fs.renameSync(tmpPath, mergedPath);
+        // 合并完成，清理分片目录（仅由落位成功方清理）
+        try {
+          fs.rmSync(chunkDir, { recursive: true, force: true });
+        } catch (e) { /* ignore */ }
+      } catch (e) {
+        fs.promises.unlink(tmpPath).catch(() => {});
+      }
     }
 
     // 生成最终存储路径（按年月分目录），保留原扩展名
@@ -259,8 +290,8 @@ exports.mergeChunks = async (req, res, next) => {
     return success(res, {
       original_name: filename,
       file_path: relativePath,
-      file_size: size || fs.statSync(mergedPath).size,
-      mime_type: mime_type || 'application/octet-stream',
+      file_size: mergedSize || fs.statSync(mergedPath).size,
+      mime_type: String(mime_type || 'application/octet-stream').slice(0, 100),
       file_hash: hash,
       ext: ext.replace('.', '')
     }, '文件合并成功');
