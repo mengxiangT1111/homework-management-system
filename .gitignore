@@ -44,3 +44,7 @@ logs/
 # 大创申请书等个人文档与生成脚本（含个人信息，仅保留在本地）
 server/outputs/
 server/generate_proposal.js
+
+# Python 编译缓存
+__pycache__/
+*.pyc
