@@ -2,7 +2,7 @@
   <div class="auth-container">
     <div class="auth-box">
       <div class="auth-logo">
-        <div class="logo-icon">📚</div>
+        <BrandLogo :size="52" class="logo-mark" />
         <h1>在线作业提交管理系统</h1>
         <p>欢迎回来，请登录您的账号</p>
       </div>
@@ -41,6 +41,7 @@ import { ElMessage } from 'element-plus'
 import { User, Lock } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 import { schoolApi } from '@/api'
+import BrandLogo from '@/components/BrandLogo.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -85,6 +86,7 @@ async function handleLogin() {
   font-size: 14px;
   color: var(--text-light);
 }
-.link { color: var(--primary); margin-left: 4px; }
+.logo-mark { display: block; margin: 0 auto; }
+.link { color: var(--brand-700); margin-left: 4px; }
 .link:hover { text-decoration: underline; }
 </style>

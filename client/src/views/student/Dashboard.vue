@@ -2,70 +2,93 @@
   <div class="page-container">
     <div class="page-title">学生仪表盘</div>
 
-    <!-- 数据卡片 -->
-    <el-row :gutter="20" style="margin-bottom:20px">
-      <el-col :xs="12" :sm="6">
-        <div class="stat-card">
-          <div class="stat-label">我的班级</div>
-          <div class="stat-value">{{ stats.classCount || 0 }}</div>
-        </div>
-      </el-col>
-      <el-col :xs="12" :sm="6">
-        <div class="stat-card">
-          <div class="stat-label">在修课程</div>
-          <div class="stat-value">{{ stats.courseCount || 0 }}</div>
-        </div>
-      </el-col>
-      <el-col :xs="12" :sm="6">
-        <div class="stat-card">
-          <div class="stat-label">待提交作业</div>
-          <div class="stat-value" style="color:var(--warning)">{{ stats.pendingSubmit || 0 }}</div>
-        </div>
-      </el-col>
-      <el-col :xs="12" :sm="6">
-        <div class="stat-card">
-          <div class="stat-label">已提交作业</div>
-          <div class="stat-value">{{ stats.mySubmissions || 0 }}</div>
-        </div>
-      </el-col>
-    </el-row>
+    <!-- 加载失败（全部请求失败才进入错误态，带重试） -->
+    <EmptyState v-if="loadError" type="error" description="仪表盘数据加载失败，请检查网络后重试" @retry="loadData" />
 
-    <!-- 待办作业 -->
-    <div class="card-section">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-        <h3>📋 待办作业</h3>
-        <el-button type="primary" link @click="$router.push('/student/assignments')">查看全部</el-button>
-      </div>
-      <div v-if="pending.length === 0" class="empty-box">
-        <el-icon :size="40"><Select /></el-icon>
-        <p style="margin-top:12px">暂无待办作业，太棒了！</p>
-      </div>
-      <div v-for="item in pending" :key="item.id" class="todo-item">
-        <div class="todo-info">
-          <div class="todo-title">{{ item.title }}</div>
-          <div class="todo-meta">
-            <el-tag size="small">{{ item.course?.class?.name }}</el-tag>
-            <span class="deadline" :class="{ urgent: isUrgent(item.deadline) }">
-              <el-icon><Clock /></el-icon>
-              截止：{{ formatTime(item.deadline) }}
-            </span>
+    <!-- 加载中：骨架屏 -->
+    <template v-else-if="loading">
+      <el-row :gutter="20" style="margin-bottom:20px">
+        <el-col v-for="i in 4" :key="i" :xs="12">
+          <div class="stat-card">
+            <el-skeleton animated>
+              <template #template>
+                <el-skeleton-item variant="text" style="width:45%;height:14px" />
+                <el-skeleton-item variant="h1" style="width:55%;height:28px;margin-top:10px" />
+              </template>
+            </el-skeleton>
           </div>
-        </div>
-        <el-button type="primary" size="small" @click="$router.push(`/student/assignments/${item.id}`)">
-          {{ isUrgent(item.deadline) ? '立即提交' : '去提交' }}
-        </el-button>
+        </el-col>
+      </el-row>
+      <div class="card-section">
+        <el-skeleton animated :rows="4" />
       </div>
-    </div>
+    </template>
+
+    <template v-else>
+      <!-- 数据卡片 -->
+      <el-row :gutter="20" style="margin-bottom:20px">
+        <el-col :xs="12" :md="6">
+          <div class="stat-card">
+            <div class="stat-label">我的班级</div>
+            <div class="stat-value">{{ stats.classCount || 0 }}</div>
+          </div>
+        </el-col>
+        <el-col :xs="12" :md="6">
+          <div class="stat-card">
+            <div class="stat-label">在修课程</div>
+            <div class="stat-value">{{ stats.courseCount || 0 }}</div>
+          </div>
+        </el-col>
+        <el-col :xs="12" :md="6">
+          <div class="stat-card">
+            <div class="stat-label">待提交作业</div>
+            <div class="stat-value" style="color:var(--warning)">{{ stats.pendingSubmit || 0 }}</div>
+          </div>
+        </el-col>
+        <el-col :xs="12" :md="6">
+          <div class="stat-card">
+            <div class="stat-label">已提交作业</div>
+            <div class="stat-value">{{ stats.mySubmissions || 0 }}</div>
+          </div>
+        </el-col>
+      </el-row>
+
+      <!-- 待办作业 -->
+      <div class="card-section">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <h3><el-icon><Tickets /></el-icon>待办作业</h3>
+          <el-button type="primary" link @click="$router.push('/student/assignments')">查看全部</el-button>
+        </div>
+        <EmptyState v-if="pending.length === 0" size="compact" title="全部完成" description="暂无待办作业" />
+        <div v-for="item in pending" :key="item.id" class="todo-item">
+          <div class="todo-info">
+            <div class="todo-title">{{ item.title }}</div>
+            <div class="todo-meta">
+              <el-tag size="small">{{ item.course?.class?.name }}</el-tag>
+              <span class="deadline" :class="{ urgent: isUrgent(item.deadline) }">
+                <el-icon><Clock /></el-icon>
+                截止：{{ formatTime(item.deadline) }}
+              </span>
+            </div>
+          </div>
+          <el-button type="primary" size="small" @click="$router.push(`/student/assignments/${item.id}`)">
+            {{ isUrgent(item.deadline) ? '立即提交' : '去提交' }}
+          </el-button>
+        </div>
+      </div>
+    </template>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { Select, Clock } from '@element-plus/icons-vue'
+import { Clock, Tickets } from '@element-plus/icons-vue'
 import { statsApi, assignmentApi } from '@/api'
 
 const stats = ref({})
 const pending = ref([])
+const loading = ref(true)
+const loadError = ref(false)
 
 function formatTime(t) { return new Date(t).toLocaleString('zh-CN') }
 function isUrgent(deadline) {
@@ -74,15 +97,16 @@ function isUrgent(deadline) {
 }
 
 async function loadData() {
-  try {
-    const s = await statsApi.student()
-    stats.value = s.data
-  } catch (e) {}
-  try {
-    const res = await assignmentApi.list({ pageSize: 50 })
-    // 筛选未提交且未逾期的
-    pending.value = res.data.list.filter(a => !a.my_submission && !a.is_overdue).slice(0, 5)
-  } catch (e) {}
+  loading.value = true
+  loadError.value = false
+  // allSettled 保留部分成功：仅全部失败才进入错误态
+  const [s, res] = await Promise.allSettled([statsApi.student(), assignmentApi.list({ pageSize: 50 })])
+  if (s.status === 'fulfilled') stats.value = s.value.data
+  if (res.status === 'fulfilled') {
+    pending.value = res.value.data.list.filter(a => !a.my_submission && !a.is_overdue).slice(0, 5)
+  }
+  loadError.value = s.status === 'rejected' && res.status === 'rejected'
+  loading.value = false
 }
 
 onMounted(loadData)

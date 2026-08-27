@@ -121,7 +121,7 @@
       </div>
     </template>
 
-    <el-empty v-else description="暂无对比数据" />
+    <EmptyState v-else description="暂无对比数据" />
 
     <template #footer>
       <el-button @click="closeDialog">关闭</el-button>
@@ -143,6 +143,21 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['update:modelValue'])
+
+// Canvas 绘制色板：与全局设计令牌对齐（assets/style.css，Canvas 无法直接读 CSS 变量故集中在此）
+const PALETTE = {
+  bg: '#f7faf8',           // --ink-50
+  textMuted: '#7d918a',    // --ink-500
+  textDark: '#2c3e50',     // --ink-800
+  srcGraph: '#5ab3f0',     // --secondary 源图侧
+  candGraph: '#3da884',    // --brand-600 对比图侧
+  score: { high: '#f56c6c', mid: '#e6a23c', low: '#3da884' },
+  nodeTypes: {
+    router: '#f56c6c', switch: '#e6a23c', pc: '#5ab3f0',
+    server: '#3da884', hub: '#909399', cloud: '#b37feb',
+    unknown: '#7d918a'
+  }
+}
 
 const loading = ref(false)
 const comparisonData = ref(null)
@@ -180,9 +195,9 @@ const dimensions = computed(() => {
 })
 
 function scoreColor(score) {
-  if (score > 70) return '#f56c6c'
-  if (score > 40) return '#e6a23c'
-  return '#67c23a'
+  if (score > 70) return PALETTE.score.high
+  if (score > 40) return PALETTE.score.mid
+  return PALETTE.score.low
 }
 
 function loadComparison() {
@@ -207,8 +222,8 @@ function loadComparison() {
 }
 
 function renderGraphs() {
-  renderGraph(srcCanvas.value, srcNodes.value, srcEdges.value, '#409eff', '源图')
-  renderGraph(candCanvas.value, candNodes.value, candEdges.value, '#67c23a', '对比图')
+  renderGraph(srcCanvas.value, srcNodes.value, srcEdges.value, PALETTE.srcGraph, '源图')
+  renderGraph(candCanvas.value, candNodes.value, candEdges.value, PALETTE.candGraph, '对比图')
 }
 
 function renderGraph(canvas, nodes, edges, color, label) {
@@ -217,11 +232,11 @@ function renderGraph(canvas, nodes, edges, color, label) {
   ctx.clearRect(0, 0, canvasWidth, canvasHeight)
 
   // 背景
-  ctx.fillStyle = '#fafafa'
+  ctx.fillStyle = PALETTE.bg
   ctx.fillRect(0, 0, canvasWidth, canvasHeight)
 
   if (nodes.length === 0 && edges.length === 0) {
-    ctx.fillStyle = '#999'
+    ctx.fillStyle = PALETTE.textMuted
     ctx.font = '14px sans-serif'
     ctx.textAlign = 'center'
     ctx.fillText('暂无图结构数据', canvasWidth / 2, canvasHeight / 2)
@@ -248,17 +263,13 @@ function renderGraph(canvas, nodes, edges, color, label) {
   ctx.globalAlpha = 1
 
   // 绘制节点
-  const typeColors = {
-    router: '#f56c6c', switch: '#e6a23c', pc: '#409eff',
-    server: '#67c23a', hub: '#909399', cloud: '#b37feb',
-    unknown: '#999'
-  }
+  const typeColors = PALETTE.nodeTypes
 
   for (const node of nodes) {
     const pos = positions[node.id]
     if (!pos) continue
 
-    const nodeColor = typeColors[node.type] || '#999'
+    const nodeColor = typeColors[node.type] || PALETTE.textMuted
     const radius = node.type === 'router' || node.type === 'cloud' ? 18 : 14
 
     // 阴影
@@ -279,7 +290,7 @@ function renderGraph(canvas, nodes, edges, color, label) {
 
     // 节点标签
     if (node.label) {
-      ctx.fillStyle = '#333'
+      ctx.fillStyle = PALETTE.textDark
       ctx.font = '11px sans-serif'
       ctx.textAlign = 'center'
       ctx.fillText(node.label, pos.x, pos.y + radius + 14)
@@ -385,7 +396,7 @@ onMounted(() => {
   width: 48px;
   height: 48px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #667eea, #764ba2);
+  background: linear-gradient(135deg, var(--brand-500), var(--brand-700));
   color: #fff;
   display: flex;
   align-items: center;
@@ -393,6 +404,7 @@ onMounted(() => {
   font-weight: 800;
   font-size: 18px;
   flex-shrink: 0;
+  box-shadow: var(--shadow-sm);
 }
 .comparison-info {
   flex: 1;
@@ -405,7 +417,7 @@ onMounted(() => {
   font-size: 13px;
 }
 .info-item .label {
-  color: #999;
+  color: var(--text-light);
   min-width: 60px;
 }
 .info-item .value {
@@ -415,14 +427,14 @@ onMounted(() => {
 .score-warning { color: var(--el-color-warning); font-weight: 700; }
 .score-safe { color: var(--el-color-success); font-weight: 700; }
 .visualization-wrapper {
-  border: 1px solid #eee;
+  border: 1px solid var(--ink-200);
   border-radius: 8px;
   overflow: hidden;
 }
 .side-by-side {
   display: flex;
   gap: 1px;
-  background: #eee;
+  background: var(--ink-200);
 }
 .side-panel {
   flex: 1;
@@ -433,7 +445,7 @@ onMounted(() => {
   font-size: 13px;
   font-weight: 600;
   margin-bottom: 8px;
-  color: #666;
+  color: var(--ink-600);
   text-align: center;
 }
 .graph-canvas-wrapper {
@@ -441,7 +453,7 @@ onMounted(() => {
   justify-content: center;
 }
 .graph-canvas {
-  border: 1px solid #eee;
+  border: 1px solid var(--ink-200);
   border-radius: 4px;
   max-width: 100%;
 }
@@ -453,8 +465,8 @@ onMounted(() => {
   font-size: 12px;
 }
 .stat-item {}
-.stat-label { color: #999; }
-.stat-value { font-weight: 600; color: #333; }
+.stat-label { color: var(--text-light); }
+.stat-value { font-weight: 600; color: var(--ink-800); font-variant-numeric: tabular-nums; }
 .section-title {
   margin: 0 0 12px 0;
   font-size: 14px;
@@ -467,7 +479,7 @@ onMounted(() => {
   gap: 16px;
 }
 .dimension-card {
-  background: #f9f9f9;
+  background: var(--ink-50);
   padding: 12px 16px;
   border-radius: 8px;
 }
@@ -478,7 +490,7 @@ onMounted(() => {
 }
 .dim-desc {
   font-size: 11px;
-  color: #999;
+  color: var(--text-light);
   margin-top: 4px;
 }
 .match-grid {
@@ -493,7 +505,7 @@ onMounted(() => {
   font-size: 13px;
 }
 .match-label {
-  color: #999;
+  color: var(--text-light);
 }
 .match-value {
   font-weight: 600;

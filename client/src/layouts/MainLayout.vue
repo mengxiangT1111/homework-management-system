@@ -6,7 +6,7 @@
     <!-- 侧边栏 -->
     <el-aside :width="collapsed ? '64px' : '220px'" class="sidebar" :class="{ 'is-mobile-open': mobileMenuOpen }">
       <div class="logo-area">
-        <span class="logo-icon">📚</span>
+        <BrandLogo :size="28" />
         <span v-show="!collapsed" class="logo-text">作业管理系统</span>
         <!-- 手机端关闭按钮 -->
         <el-icon class="mobile-close" v-if="mobileMenuOpen" @click="toggleMobileMenu"><Close /></el-icon>
@@ -67,7 +67,11 @@
 
       <!-- 主内容 -->
       <el-main class="main-content">
-        <router-view />
+        <router-view v-slot="{ Component }">
+          <transition name="page" mode="out-in">
+            <component :is="Component" />
+          </transition>
+        </router-view>
       </el-main>
     </el-container>
   </el-container>
@@ -81,6 +85,7 @@ import { Operation, Close, Bell, CaretBottom, User, SwitchButton } from '@elemen
 import { useAuthStore } from '@/stores/auth'
 import { useNotificationStore } from '@/stores/notification'
 import { classApi, courseApi } from '@/api'
+import BrandLogo from '@/components/BrandLogo.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -199,7 +204,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.main-layout { height: 100vh; }
+.main-layout { height: 100vh; height: 100dvh; }
 
 .sidebar {
   background: linear-gradient(180deg, #2d6a5f 0%, #1e4d44 100%);
@@ -232,7 +237,8 @@ onUnmounted(() => {
 }
 
 .side-menu :deep(.el-menu-item.is-active) {
-  background: var(--primary) !important;
+  background: linear-gradient(90deg, rgba(111, 205, 169, 0.30), rgba(111, 205, 169, 0.08)) !important;
+  color: #ffffff !important;
 }
 
 .side-menu :deep(.el-menu-item:hover) {

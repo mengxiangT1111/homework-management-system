@@ -20,13 +20,13 @@
     </div>
 
     <div v-if="positions.length === 0" class="card-section">
-      <el-empty description="你目前不是班级负责人，无法使用此功能" />
+      <EmptyState type="empty" title="暂无权限" description="你目前不是班级负责人，无法使用此功能" />
     </div>
 
     <!-- 作业提交进度 -->
     <div v-else class="card-section">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-        <h3 style="margin:0">📊 作业提交进度</h3>
+        <h3 style="margin:0"><el-icon><DataLine /></el-icon>作业提交进度</h3>
         <el-button type="primary" @click="openCreateDialog">
           <el-icon><Plus /></el-icon> 发布作业
         </el-button>
@@ -313,9 +313,13 @@ async function loadPositions() {
   }
 }
 
+// 请求序号守卫：快速切换班级时丢弃过期响应，避免显示与当前选中不符的数据
+let loadDataSeq = 0
 async function loadData() {
   if (!currentClassId.value) return
+  const seq = ++loadDataSeq
   const res = await classApi.leaderAssignments(currentClassId.value)
+  if (seq !== loadDataSeq) return
   assignments.value = res.data.assignments
 }
 

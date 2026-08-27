@@ -3,8 +3,8 @@
     <div class="page-title">AI 批改人工复核</div>
 
     <div class="card-section">
-      <!-- 状态筛选 -->
-      <el-radio-group v-model="filterStatus" style="margin-bottom:16px" @change="loadList">
+      <!-- 状态筛选（切换须回到第 1 页，避免停留在大页码时列表空白） -->
+      <el-radio-group v-model="filterStatus" style="margin-bottom:16px" @change="() => { page = 1; loadList() }">
         <el-radio-button value="pending">待复核（{{ pendingCount }}）</el-radio-button>
         <el-radio-button value="approved">已通过</el-radio-button>
         <el-radio-button value="adjusted">已调整</el-radio-button>
@@ -36,7 +36,7 @@
         <el-table-column label="触发原因" min-width="220">
           <template #default="{ row }">
             <span v-if="row.result?.review_reasons?.length" class="reason-text">{{ row.result.review_reasons.join('；') }}</span>
-            <span v-else style="color:#ccc">—</span>
+            <span v-else class="placeholder-text">—</span>
           </template>
         </el-table-column>
         <el-table-column label="状态" width="90" align="center">
@@ -234,4 +234,5 @@ onMounted(() => { loadList(); loadPendingCount() })
 <style scoped>
 .score { font-size: 16px; font-weight: 700; color: var(--primary); }
 .reason-text { font-size: 13px; color: var(--text-light); }
+.placeholder-text { color: var(--ink-400); }
 </style>

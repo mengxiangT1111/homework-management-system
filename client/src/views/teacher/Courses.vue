@@ -18,7 +18,7 @@
       <el-row :gutter="20">
         <el-col v-for="c in courses" :key="c.id" :xs="24" :sm="12" :md="8">
           <div class="course-card">
-            <div class="course-icon">📖</div>
+            <div class="course-icon"><el-icon :size="26"><Reading /></el-icon></div>
             <h3>{{ c.name }}</h3>
             <p class="course-meta">班级：{{ c.class?.name || '-' }}</p>
             <p class="course-meta">年级：{{ c.class?.grade || '-' }}</p>
@@ -176,7 +176,11 @@ onMounted(loadData)
   margin-bottom: 16px; transition: all 0.3s;
 }
 .course-card:hover { box-shadow: var(--shadow-hover); transform: translateY(-2px); }
-.course-icon { font-size: 36px; }
+.course-icon {
+  display: flex; align-items: center; justify-content: center;
+  width: 52px; height: 52px;
+  border-radius: var(--radius-lg); background: var(--brand-50); color: var(--brand-600);
+}
 .course-card h3 { margin: 12px 0 8px; }
 .course-meta { font-size: 13px; color: var(--text-light); margin: 4px 0; }
 .course-desc { font-size: 13px; color: var(--text); margin-top: 8px; line-height: 1.6; }

@@ -44,7 +44,7 @@
         </el-table-column>
       </el-table>
 
-      <el-empty v-if="!loadingAssignments && assignments.length === 0" description="暂无作业" />
+      <EmptyState v-if="!loadingAssignments && assignments.length === 0" size="compact" description="暂无作业" />
     </div>
 
     <!-- 步骤2：查重结果面板 -->
@@ -112,7 +112,7 @@
       <!-- 可疑结果列表 -->
       <div v-if="!batchLoading && suspiciousResults.length > 0" class="card-section">
         <div class="section-header">
-          <h3>🚨 可疑结果（前 {{ suspiciousResults.length }} 条）</h3>
+          <h3><el-icon style="color:var(--color-danger)"><WarningFilled /></el-icon>可疑结果（前 {{ suspiciousResults.length }} 条）</h3>
         </div>
         <el-table :data="suspiciousResults" stripe @row-click="viewDetail">
           <el-table-column label="学生 A" width="120">
@@ -158,7 +158,7 @@
       <!-- 所有学生查重得分概览 -->
       <div v-if="!batchLoading && Object.keys(studentMaxScores).length > 0" class="card-section">
         <div class="section-header">
-          <h3>📊 全班查重结果一览</h3>
+          <h3><el-icon><DataAnalysis /></el-icon>全班查重结果一览</h3>
         </div>
         <el-table :data="studentScoreList" stripe size="small">
           <el-table-column label="学生" prop="studentName" width="120" />

@@ -12,7 +12,7 @@
       <el-row :gutter="20">
         <el-col v-for="cls in classes" :key="cls.id" :xs="24" :sm="12" :md="8">
           <div class="class-card">
-            <div class="class-icon">🏫</div>
+            <div class="class-icon"><el-icon :size="28"><School /></el-icon></div>
             <h3>{{ cls.name }}</h3>
             <p class="class-grade">{{ cls.grade }}</p>
             <p class="class-teacher">班主任：{{ cls.headTeacher?.real_name || '未指定' }}</p>
@@ -90,7 +90,11 @@ onMounted(loadData)
   text-align: center; margin-bottom: 16px; transition: all 0.3s;
 }
 .class-card:hover { box-shadow: var(--shadow-hover); transform: translateY(-2px); }
-.class-icon { font-size: 40px; }
+.class-icon {
+  display: flex; align-items: center; justify-content: center;
+  width: 56px; height: 56px; margin: 0 auto;
+  border-radius: var(--radius-lg); background: var(--brand-50); color: var(--brand-600);
+}
 .class-card h3 { margin: 12px 0 6px; }
 .class-grade { color: var(--text-light); font-size: 13px; }
 .class-teacher { color: var(--text-light); font-size: 13px; margin-top: 4px; }

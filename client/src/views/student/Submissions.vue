@@ -26,13 +26,13 @@
         <el-table-column label="分数" width="80">
           <template #default="{ row }">
             <span v-if="row.score !== null" class="score">{{ row.score }}</span>
-            <span v-else style="color:#ccc">—</span>
+            <span v-else class="placeholder-text">—</span>
           </template>
         </el-table-column>
         <el-table-column label="老师评语" min-width="200">
           <template #default="{ row }">
             <span v-if="row.comment">{{ row.comment }}</span>
-            <span v-else style="color:#ccc">暂无</span>
+            <span v-else class="placeholder-text">暂无</span>
           </template>
         </el-table-column>
         <el-table-column label="文件数" width="80" align="center">
@@ -115,4 +115,5 @@ onMounted(loadData)
 .sub-title { font-weight: 500; }
 .sub-course { font-size: 12px; color: var(--text-light); margin-top: 2px; }
 .score { font-size: 16px; font-weight: 700; color: var(--primary); }
+.placeholder-text { color: var(--ink-400); }
 </style>

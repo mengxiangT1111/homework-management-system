@@ -55,21 +55,21 @@
 
     <!-- 总评与建议 -->
     <div v-if="result.overall_feedback" class="feedback-section">
-      <div class="section-title">💬 总评</div>
+      <div class="section-title"><el-icon><ChatDotRound /></el-icon>总评</div>
       <div class="section-body">{{ result.overall_feedback }}</div>
     </div>
     <div v-if="result.improvement_advice" class="feedback-section">
-      <div class="section-title">💡 改进建议</div>
+      <div class="section-title"><el-icon><MagicStick /></el-icon>改进建议</div>
       <div class="section-body">{{ result.improvement_advice }}</div>
     </div>
     <div v-if="result.knowledge_errors && result.knowledge_errors.length" class="feedback-section">
-      <div class="section-title">⚠️ 知识盲区</div>
+      <div class="section-title"><el-icon><WarningFilled /></el-icon>知识盲区</div>
       <el-tag v-for="(e, i) in result.knowledge_errors" :key="i" type="danger" style="margin:0 6px 6px 0">{{ e }}</el-tag>
     </div>
 
     <!-- 复核意见（复核完成后展示） -->
     <div v-if="result.review && result.review.status && result.review.status !== 'pending'" class="feedback-section">
-      <div class="section-title">👩‍🏫 教师复核</div>
+      <div class="section-title"><el-icon><Checked /></el-icon>教师复核</div>
       <div class="section-body">
         {{ reviewResultText }}
         <span v-if="result.review.comment">（{{ result.review.comment }}）</span>
@@ -78,7 +78,7 @@
 
     <!-- 复核原因（待复核时展示给教师看） -->
     <div v-if="result.needs_review && result.review_reasons && result.review_reasons.length && showReviewReasons" class="feedback-section">
-      <div class="section-title">🔍 触发复核原因</div>
+      <div class="section-title"><el-icon><Search /></el-icon>触发复核原因</div>
       <div class="section-body">{{ result.review_reasons.join('；') }}</div>
     </div>
   </div>
@@ -87,6 +87,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import * as echarts from 'echarts'
+import { ChatDotRound, MagicStick, WarningFilled, Checked, Search } from '@element-plus/icons-vue'
 
 const props = defineProps({
   result: { type: Object, required: true },
@@ -126,7 +127,7 @@ const dimPercent = (d) => {
   if (d.score == null || !d.max_score) return 0
   return Math.min(100, Math.round(Number(d.score) / Number(d.max_score) * 100))
 }
-const progressColor = (p) => p >= 85 ? '#67c23a' : p >= 70 ? '#409eff' : p >= 60 ? '#e6a23c' : '#f56c6c'
+const progressColor = (p) => p >= 85 ? '#3da884' : p >= 70 ? '#52c4a0' : p >= 60 ? '#e6a23c' : '#f56c6c'
 const levelType = (level) => {
   const l = String(level).toUpperCase()
   return l === 'A' ? 'success' : l === 'B' ? '' : l === 'C' ? 'warning' : 'danger'
@@ -140,16 +141,16 @@ function renderRadar() {
     radar: {
       indicator: dims.map(d => ({ name: d.name, max: Number(d.max_score) })),
       radius: '65%',
-      splitArea: { areaStyle: { color: ['#fafafa', '#f0f5ff'] } }
+      splitArea: { areaStyle: { color: ['#f7faf8', '#ebf6f2'] } }
     },
     series: [{
       type: 'radar',
       data: [{
         value: dims.map(d => (d.score == null ? 0 : Number(d.score))),
         name: '得分',
-        areaStyle: { color: 'rgba(64,158,255,0.25)' },
-        lineStyle: { color: '#409eff' },
-        itemStyle: { color: '#409eff' }
+        areaStyle: { color: 'rgba(61, 168, 132, 0.25)' },
+        lineStyle: { color: '#3da884' },
+        itemStyle: { color: '#3da884' }
       }]
     }]
   })
@@ -165,21 +166,30 @@ onBeforeUnmount(() => { if (chart) { chart.dispose(); chart = null } })
 .score-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
 .score-main { text-align: center; flex: 1; }
 .score-num { font-size: 46px; font-weight: 700; }
-.score-num.excellent { color: #67c23a; }
-.score-num.good { color: #409eff; }
+.score-num.excellent { color: #3da884; }
+.score-num.good { color: #2f8065; }
 .score-num.pass { color: #e6a23c; }
 .score-num.poor { color: #f56c6c; }
-.score-max { font-size: 18px; color: #909399; margin-left: 4px; }
+.score-max { font-size: 18px; color: var(--ink-500); margin-left: 4px; }
 .score-badges { display: flex; gap: 6px; flex-wrap: wrap; }
 .chart-row { display: flex; gap: 16px; flex-wrap: wrap; }
 .radar-box { width: 260px; height: 240px; flex-shrink: 0; }
 .dim-list { flex: 1; min-width: 240px; display: flex; flex-direction: column; gap: 12px; justify-content: center; }
 .dim-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 .dim-name { font-weight: 600; font-size: 14px; }
-.dim-score { margin-left: auto; color: #606266; font-size: 13px; }
-.dim-detail { font-size: 13px; line-height: 1.8; color: #606266; padding: 2px 0; }
-.deduction-line { color: #f56c6c; padding-left: 8px; }
+.dim-score { margin-left: auto; color: var(--ink-700); font-size: 13px; }
+.dim-detail { font-size: 13px; line-height: 1.8; color: var(--ink-700); padding: 2px 0; }
+.deduction-line { color: var(--color-danger); padding-left: 8px; }
 .feedback-section { margin-top: 14px; }
-.section-title { font-weight: 600; font-size: 14px; margin-bottom: 6px; }
-.section-body { font-size: 14px; line-height: 1.9; white-space: pre-wrap; background: #f8faf9; padding: 10px; border-radius: 6px; }
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 6px;
+  color: var(--ink-800);
+}
+.section-title .el-icon { color: var(--brand-600); }
+.section-body { font-size: 14px; line-height: 1.9; white-space: pre-wrap; background: var(--ink-50); padding: 10px; border-radius: 6px; }
 </style>

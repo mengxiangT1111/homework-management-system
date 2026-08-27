@@ -1,21 +1,179 @@
-/* ===== 校园清新配色 全局样式 ===== */
+/* =====================================================================
+   设计令牌 Design Tokens —— 校园薄荷绿 Mint (hue 161)
+   命名规范：--brand-* 品牌色阶 / --ink-* 中性阶 / --color-* 语义色
+             --sp-* 间距 / --fs-* 字号 / --radius-* 圆角 / --shadow-* 阴影
+             --dur-* 时长 / --ease-* 缓动 / --z-* 层级
+   ===================================================================== */
 :root {
-  --primary: #52c4a0;          /* 薄荷绿 主色 */
-  --primary-light: #7dd8bb;
-  --primary-dark: #3da884;
-  --secondary: #5ab3f0;        /* 天空蓝 辅色 */
+  /* ---- 品牌色阶（锚点 #52c4a0，沿用原 --primary/-light/-dark） ---- */
+  --brand-50:  #f2faf7;
+  --brand-100: #e1f5ec;
+  --brand-200: #c3eadb;
+  --brand-300: #97dbc2;
+  --brand-400: #6fcda9;
+  --brand-500: #52c4a0;   /* 品牌锚点：图形/进度/点缀 */
+  --brand-600: #3da884;   /* 实底按钮/开关/Tabs：白字对比 2.94:1（原 2.15） */
+  --brand-700: #2f8065;   /* 文字级品牌色：白底对比 4.78:1，达 AA */
+  --brand-800: #2d6a5f;   /* 侧边栏渐变顶 */
+  --brand-900: #1e4d44;   /* 侧边栏渐变底 */
+
+  /* ---- 中性色阶（绿灰调，锚点沿用原 --text/#2c3e50 与 --border/#e8f0ec） ---- */
+  --ink-50:  #f7faf8;
+  --ink-100: #f0f5f2;
+  --ink-200: #e8f0ec;
+  --ink-300: #d3e0d9;
+  --ink-400: #a8bdb4;
+  --ink-500: #7d918a;    /* 禁用/占位 */
+  --ink-600: #5f6f68;    /* 次要文字：白底对比 5.3:1（原 #7f8c8d 仅 3.48） */
+  --ink-700: #47544e;
+  --ink-800: #2c3e50;    /* 正文锚点 */
+
+  /* ---- 语义色 ---- */
+  --color-success: #3da884;   /* 与品牌同族，成功=深薄荷 */
+  --color-warning: #e6a23c;
+  --color-danger:  #f56c6c;
+  --color-info:    #909399;
+
+  /* ---- 排版 ---- */
+  --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'PingFang SC', 'HarmonyOS Sans SC', 'Microsoft YaHei', sans-serif;
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-md: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 18px;
+  --fs-2xl: 22px;
+  --fs-3xl: 28px;
+
+  /* ---- 间距（4 的倍数） ---- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+  --sp-12: 48px;
+
+  /* ---- 圆角 ---- */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;   /* 原 --radius */
+  --radius-xl: 16px;
+  --radius-pill: 999px;
+
+  /* ---- 阴影（品牌深绿调，替代纯黑） ---- */
+  --shadow-xs: 0 1px 2px rgba(30, 77, 68, 0.05);
+  --shadow-sm: 0 1px 2px rgba(30, 77, 68, 0.04), 0 2px 8px rgba(30, 77, 68, 0.06);
+  --shadow-md: 0 2px 4px rgba(30, 77, 68, 0.05), 0 6px 16px rgba(30, 77, 68, 0.08);
+  --shadow-lg: 0 8px 24px rgba(30, 77, 68, 0.12), 0 20px 48px rgba(30, 77, 68, 0.10);
+
+  /* ---- 动效 ---- */
+  --dur-fast: 0.15s;
+  --dur-base: 0.25s;
+  --dur-slow: 0.4s;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* ---- 层级 ---- */
+  --z-overlay: 999;
+  --z-drawer: 1000;
+
+  /* =====================================================================
+     Element Plus 主题映射 —— 全控件品牌化（此前仅按钮被覆盖，
+     开关/单选/Tabs/日期/聚焦态/标签等均为默认蓝 #409eff）
+     light-N = 品牌色与白色按 N/10 混合，dark-2 = 加深 20%（与 EP 算法一致）
+     ===================================================================== */
+  --el-color-primary: var(--brand-500);
+  --el-color-primary-light-3: #86d5bd;
+  --el-color-primary-light-5: #a8e1cf;
+  --el-color-primary-light-7: #cbede2;
+  --el-color-primary-light-8: #dcf3ec;
+  --el-color-primary-light-9: #edf9f5;
+  --el-color-primary-dark-2: #419d80;
+
+  --el-color-success: var(--color-success);
+  --el-color-success-light-3: #77c2a9;
+  --el-color-success-light-5: #9ed3c1;
+  --el-color-success-light-7: #c4e5da;
+  --el-color-success-light-8: #d8ede6;
+  --el-color-success-light-9: #ebf6f2;
+  --el-color-success-dark-2: #308669;
+
+  --el-color-warning: var(--color-warning);
+  --el-color-warning-light-3: #eebd76;
+  --el-color-warning-light-5: #f2d09d;
+  --el-color-warning-light-7: #f7e3c4;
+  --el-color-warning-light-8: #faecd8;
+  --el-color-warning-light-9: #fcf5eb;
+  --el-color-warning-dark-2: #b88130;
+
+  --el-color-danger: var(--color-danger);
+  --el-color-danger-light-3: #f89898;
+  --el-color-danger-light-5: #fab5b5;
+  --el-color-danger-light-7: #fcd2d2;
+  --el-color-danger-light-8: #fde1e1;
+  --el-color-danger-light-9: #fef0f0;
+  --el-color-danger-dark-2: #c45656;
+  --el-color-error: var(--color-danger);
+  --el-color-error-light-3: #f89898;
+  --el-color-error-light-5: #fab5b5;
+  --el-color-error-light-7: #fcd2d2;
+  --el-color-error-light-8: #fde1e1;
+  --el-color-error-light-9: #fef0f0;
+  --el-color-error-dark-2: #c45656;
+
+  --el-color-info: var(--color-info);
+  --el-color-info-light-3: #b1b3b8;
+  --el-color-info-light-5: #c7c9cc;
+  --el-color-info-light-7: #dedede;
+  --el-color-info-light-8: #e8e9ea;
+  --el-color-info-light-9: #f3f3f3;
+  --el-color-info-dark-2: #73757a;
+
+  /* 中性/文字/边框对齐 --ink 阶 */
+  --el-text-color-primary: #263440;
+  --el-text-color-regular: var(--ink-700);
+  --el-text-color-secondary: var(--ink-600);
+  --el-text-color-placeholder: var(--ink-400);
+  --el-text-color-disabled: var(--ink-500);
+  --el-border-color: var(--ink-300);
+  --el-border-color-light: var(--ink-200);
+  --el-border-color-lighter: var(--ink-100);
+  --el-border-color-extra-light: var(--ink-100);
+  --el-border-color-hover: var(--brand-400);
+  --el-fill-color-light: var(--ink-100);
+  --el-fill-color-lighter: var(--ink-50);
+  --el-fill-color-blank: #ffffff;
+  --el-bg-color-page: var(--ink-50);
+  --el-disabled-bg-color: var(--ink-100);
+
+  /* 形状与字体 */
+  --el-border-radius-base: 8px;
+  --el-border-radius-small: 6px;
+  --el-border-radius-round: 999px;
+  --el-font-family: var(--font-family);
+
+  /* =====================================================================
+     旧令牌别名（全站已有 128 处 var() 引用，保持兼容零改动）
+     ===================================================================== */
+  --primary: var(--brand-500);
+  --primary-light: var(--brand-400);
+  --primary-dark: var(--brand-600);
+  --secondary: #5ab3f0;
   --secondary-light: #8ccaf6;
-  --bg: #f4f9f7;               /* 浅薄荷背景 */
+  --bg: var(--ink-50);
   --bg-card: #ffffff;
-  --text: #2c3e50;
-  --text-light: #7f8c8d;
-  --border: #e8f0ec;
-  --danger: #f56c6c;
-  --warning: #e6a23c;
-  --success: #52c4a0;
-  --shadow: 0 2px 12px rgba(82, 196, 160, 0.08);
-  --shadow-hover: 0 6px 20px rgba(82, 196, 160, 0.15);
-  --radius: 12px;
+  --text: var(--ink-800);
+  --text-light: var(--ink-600);
+  --border: var(--ink-200);
+  --danger: var(--color-danger);
+  --warning: var(--color-warning);
+  --success: var(--color-success);
+  --shadow: var(--shadow-sm);
+  --shadow-hover: var(--shadow-md);
+  --radius: var(--radius-lg);
 }
 
 * {
@@ -26,31 +184,38 @@
 
 html, body, #app {
   height: 100%;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-family: var(--font-family);
   color: var(--text);
   background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
+
+html { scrollbar-width: thin; scrollbar-color: var(--ink-300) transparent; }
 
 #app {
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 a { color: inherit; text-decoration: none; }
 
+::selection { background: var(--brand-100); color: var(--brand-900); }
+
 /* ===== 滚动条 ===== */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #c8e6dd; border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: var(--primary-light); }
+::-webkit-scrollbar-thumb { background: var(--ink-300); border-radius: var(--radius-pill); }
+::-webkit-scrollbar-thumb:hover { background: var(--brand-400); }
 
-/* ===== Element Plus 主题色覆盖 ===== */
+/* ===== Element Plus 主按钮：底色升档保证白字可读（2.15 → 2.94:1） ===== */
 .el-button--primary {
-  --el-button-bg-color: var(--primary);
-  --el-button-border-color: var(--primary);
-  --el-button-hover-bg-color: var(--primary-dark);
-  --el-button-hover-border-color: var(--primary-dark);
-  --el-button-active-bg-color: var(--primary-dark);
-  --el-button-active-border-color: var(--primary-dark);
+  --el-button-bg-color: var(--brand-600);
+  --el-button-border-color: var(--brand-600);
+  --el-button-hover-bg-color: var(--brand-500);
+  --el-button-hover-border-color: var(--brand-500);
+  --el-button-active-bg-color: var(--brand-700);
+  --el-button-active-border-color: var(--brand-700);
 }
 
 .el-menu {
@@ -58,111 +223,139 @@ a { color: inherit; text-decoration: none; }
 }
 
 .el-pagination.is-background .el-pager li.is-active {
-  background-color: var(--primary) !important;
+  background-color: var(--brand-600) !important;
+}
+
+/* 数字统计场景：等宽数字避免刷新抖动（全站 0 → 覆盖统计卡/分数/进度文案） */
+.stat-card .stat-value,
+.score-num,
+.rate-text,
+.ai-score-num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+.stat-card .stat-value,
+.score-num,
+.ai-score-num {
+  letter-spacing: -0.02em;
 }
 
 /* ===== 页面通用类 ===== */
 .page-container {
-  padding: 20px;
+  padding: var(--sp-5);
   max-width: 1400px;
   margin: 0 auto;
 }
 
 .page-title {
-  font-size: 22px;
-  font-weight: 600;
+  font-size: var(--fs-2xl);
+  font-weight: 650;
   color: var(--text);
-  margin-bottom: 20px;
+  letter-spacing: -0.01em;
+  margin-bottom: var(--sp-5);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
 }
 
 .page-title::before {
   content: '';
   width: 4px;
   height: 22px;
-  background: var(--primary);
+  background: linear-gradient(180deg, var(--brand-500), var(--brand-700));
   border-radius: 2px;
+}
+
+/* 卡片内区块标题：统一字号字重，替代各页内联样式与 emoji 依赖 */
+.card-section h3,
+.card-section .section-h {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  color: var(--ink-800);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.card-section h3 .el-icon,
+.card-section .section-h .el-icon {
+  color: var(--brand-600);
+  font-size: var(--fs-lg);
 }
 
 .card-section {
   background: var(--bg-card);
-  border-radius: var(--radius);
-  padding: 20px;
-  box-shadow: var(--shadow);
-  margin-bottom: 20px;
+  border-radius: var(--radius-lg);
+  padding: var(--sp-5);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: var(--sp-5);
 }
 
 .filter-bar {
   display: flex;
-  gap: 12px;
-  margin-bottom: 20px;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-5);
   flex-wrap: wrap;
   align-items: center;
 }
 
 .stat-card {
   background: var(--bg-card);
-  border-radius: var(--radius);
-  padding: 24px;
-  box-shadow: var(--shadow);
-  transition: all 0.3s;
+  border-radius: var(--radius-lg);
+  padding: var(--sp-6);
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--dur-base) var(--ease-out), box-shadow var(--dur-base) var(--ease-out);
 }
 
 .stat-card:hover {
-  box-shadow: var(--shadow-hover);
+  box-shadow: var(--shadow-md);
   transform: translateY(-2px);
 }
 
 .stat-card .stat-value {
-  font-size: 32px;
+  font-size: var(--fs-3xl);
   font-weight: 700;
-  color: var(--primary);
-  margin: 8px 0;
+  color: var(--brand-700);
+  margin: var(--sp-2) 0;
+  line-height: 1.2;
 }
 
 .stat-card .stat-label {
   color: var(--text-light);
-  font-size: 14px;
+  font-size: var(--fs-md);
 }
 
 .empty-box {
   text-align: center;
-  padding: 60px 20px;
+  padding: 60px var(--sp-5);
   color: var(--text-light);
-}
-
-/* ===== 响应式 ===== */
-@media (max-width: 768px) {
-  .page-container { padding: 12px; }
-  .filter-bar { flex-direction: column; align-items: stretch; }
-  .filter-bar .el-input,
-  .filter-bar .el-select { width: 100% !important; }
 }
 
 /* ===== 登录注册页 ===== */
 .auth-container {
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #a8e6cf 0%, #88d8e0 50%, #b8e0f6 100%);
-  padding: 20px;
+  /* 单色相薄荷渐变（原三色相绿→青→蓝跨相渐变），加径向高光增加层次 */
+  background:
+    radial-gradient(1200px 600px at 80% -10%, rgba(255, 255, 255, 0.55), transparent 60%),
+    linear-gradient(150deg, #e7f7f0 0%, #cdeee0 45%, #a9ddc9 100%);
+  padding: var(--sp-5);
 }
 
 .auth-box {
-  background: white;
-  border-radius: 20px;
-  padding: 40px;
+  background: #ffffff;
+  border-radius: var(--radius-xl);
+  padding: var(--sp-10);
   width: 100%;
   max-width: 420px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-lg);
 }
 
 .auth-logo {
   text-align: center;
-  margin-bottom: 30px;
+  margin-bottom: var(--sp-8);
 }
 
 .auth-logo .logo-icon {
@@ -170,13 +363,23 @@ a { color: inherit; text-decoration: none; }
 }
 
 .auth-logo h1 {
-  font-size: 22px;
+  font-size: var(--fs-2xl);
+  font-weight: 650;
   color: var(--text);
-  margin-top: 12px;
+  letter-spacing: -0.01em;
+  margin-top: var(--sp-3);
 }
 
 .auth-logo p {
   color: var(--text-light);
-  font-size: 13px;
-  margin-top: 6px;
+  font-size: var(--fs-sm);
+  margin-top: var(--sp-2);
+}
+
+/* ===== 响应式 ===== */
+@media (max-width: 768px) {
+  .page-container { padding: var(--sp-3); }
+  .filter-bar { flex-direction: column; align-items: stretch; }
+  .filter-bar .el-input,
+  .filter-bar .el-select { width: 100% !important; }
 }

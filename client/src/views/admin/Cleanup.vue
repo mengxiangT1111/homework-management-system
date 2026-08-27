@@ -57,9 +57,7 @@
             <el-icon><Delete /></el-icon> 确认执行清理
           </el-button>
         </div>
-        <el-alert v-else type="success" :closable="false" style="margin-top:16px">
-          暂无需要清理的过期文件 🎉
-        </el-alert>
+        <el-alert v-else type="success" :closable="false" style="margin-top:16px" title="暂无需要清理的过期文件" />
       </div>
 
       <div v-else class="empty-box">

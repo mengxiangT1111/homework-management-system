@@ -90,7 +90,7 @@
           <el-table-column label="同构" width="70" align="center">
             <template #default="{ row }">
               <el-tag v-if="row.isIsomorphic" type="danger" size="small">是</el-tag>
-              <span v-else style="color:#ccc">否</span>
+              <span v-else class="placeholder-text">否</span>
             </template>
           </el-table-column>
           <el-table-column label="操作" width="100" align="center">
@@ -102,7 +102,7 @@
       </div>
     </template>
 
-    <el-empty v-else description="暂无查重结果" />
+    <EmptyState v-else description="暂无查重结果" />
 
     <template #footer>
       <el-button @click="recheck" :loading="recheckLoading" type="warning" plain>
@@ -306,9 +306,10 @@ onUnmounted(() => {
 }
 .score-label {
   font-size: 13px;
-  color: #999;
+  color: var(--text-light);
   margin-top: 4px;
 }
+.placeholder-text { color: var(--ink-400); }
 .hero-danger .score-number { color: var(--el-color-danger); }
 .hero-warning .score-number { color: var(--el-color-warning); }
 .hero-safe .score-number { color: var(--el-color-success); }

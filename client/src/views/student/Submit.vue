@@ -17,7 +17,7 @@
 
       <!-- 提交样例区域 -->
       <div v-if="assignment.sample_files && assignment.sample_files.length > 0" class="sample-section">
-        <strong>📎 提交样例：</strong>
+        <strong class="sample-title"><el-icon><Paperclip /></el-icon>提交样例：</strong>
         <div class="sample-list">
           <div v-for="(s, idx) in assignment.sample_files" :key="idx" class="sample-file-item">
             <!-- 图片：点击放大在线预览（支持多图切换/缩放） -->
@@ -54,7 +54,7 @@
 
     <!-- 已提交记录 -->
     <div v-if="mySubmission" class="card-section">
-      <h3 style="margin-bottom:16px;color:var(--primary)">✓ 你的提交记录</h3>
+      <h3 style="margin-bottom:16px"><el-icon><Select /></el-icon>你的提交记录</h3>
       <el-alert v-if="mySubmission.score !== null" :title="`本次作业得分：${mySubmission.score} 分`" type="success" :closable="false" style="margin-bottom:16px" />
       <div v-if="mySubmission.comment" class="comment-box">
         <strong>老师评语：</strong>{{ mySubmission.comment }}
@@ -120,6 +120,7 @@ const submitting = ref(false)
 const previewVisible = ref(false)
 const previewPath = ref('')
 const previewName = ref('')
+const uploaderRef = ref(null)
 
 function formatTime(t) { return new Date(t).toLocaleString('zh-CN') }
 function formatSize(b) {
@@ -180,6 +181,8 @@ async function doSubmit() {
     ElMessage.success('作业提交成功！')
     uploadedFiles.value = []
     remark.value = ''
+    // 同步清空上传组件的文件列表，否则旧文件残留会混入下次"开始上传"的结果
+    uploaderRef.value && uploaderRef.value.clearAll()
     mySubmission.value = res.data
     await loadData()
   } catch (e) {} finally { submitting.value = false }
@@ -226,6 +229,8 @@ onMounted(loadData)
   border-radius: 8px;
   margin: 12px 0;
 }
+.sample-title { display: inline-flex; align-items: center; gap: 4px; }
+.sample-title .el-icon { color: var(--brand-600); vertical-align: -3px; }
 .sample-list {
   display: flex;
   flex-wrap: wrap;

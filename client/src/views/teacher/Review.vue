@@ -61,19 +61,19 @@
                 查重检测
               </el-button>
             </template>
-            <span v-else style="color:#ccc">—</span>
+            <span v-else class="placeholder-text">—</span>
           </template>
         </el-table-column>
         <el-table-column label="分数" width="70" align="center">
           <template #default="{ row }">
             <span v-if="row.submission?.score !== null && row.submission?.score !== undefined" class="score">{{ row.submission.score }}</span>
-            <span v-else style="color:#ccc">—</span>
+            <span v-else class="placeholder-text">—</span>
           </template>
         </el-table-column>
         <el-table-column label="评语" min-width="150">
           <template #default="{ row }">
             <span v-if="row.submission?.comment" class="comment-text">{{ row.submission.comment }}</span>
-            <span v-else style="color:#ccc">—</span>
+            <span v-else class="placeholder-text">—</span>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="140" align="center" fixed="right">
@@ -151,10 +151,10 @@
         </div>
 
         <!-- AI 批改参数 -->
-        <el-card shadow="never" style="margin-bottom:16px;background:#f8fbf9">
+        <el-card shadow="never" class="ai-param-card">
           <template #header>
             <div style="display:flex;justify-content:space-between;align-items:center">
-              <span style="font-weight:600">📋 批改参数</span>
+              <span class="ai-card-title"><el-icon><Tickets /></el-icon>批改参数</span>
               <el-button size="small" type="primary" :loading="aiGrading" @click="doAIGrade">
                 <el-icon><MagicStick /></el-icon> 开始AI批改
               </el-button>
@@ -186,9 +186,9 @@
         </el-card>
 
         <!-- AI 批改结果 -->
-        <el-card v-if="aiResult" shadow="never" style="background:#f0faf6">
+        <el-card v-if="aiResult" shadow="never" class="ai-result-card">
           <template #header>
-            <span style="font-weight:600">🤖 AI 批改结果</span>
+            <span class="ai-card-title"><el-icon><MagicStick /></el-icon>AI 批改结果</span>
           </template>
           <div class="ai-result">
             <div class="ai-score-display">
@@ -199,22 +199,22 @@
             <el-divider />
 
             <div class="ai-result-section">
-              <div class="ai-section-title">📝 扣分理由</div>
+              <div class="ai-section-title"><el-icon><EditPen /></el-icon>扣分理由</div>
               <div class="ai-section-content">{{ aiResult.deduction_reason }}</div>
             </div>
 
             <div class="ai-result-section">
-              <div class="ai-section-title">💬 评语</div>
+              <div class="ai-section-title"><el-icon><ChatDotRound /></el-icon>评语</div>
               <div class="ai-section-content">{{ aiResult.comment }}</div>
             </div>
 
             <div class="ai-result-section">
-              <div class="ai-section-title">💡 改进建议</div>
+              <div class="ai-section-title"><el-icon><MagicStick /></el-icon>改进建议</div>
               <div class="ai-section-content">{{ aiResult.improvement_advice }}</div>
             </div>
 
             <div v-if="aiResult.knowledge_errors?.length > 0" class="ai-result-section">
-              <div class="ai-section-title">⚠️ 知识点错误</div>
+              <div class="ai-section-title"><el-icon><WarningFilled /></el-icon>知识点错误</div>
               <el-tag v-for="(err, idx) in aiResult.knowledge_errors" :key="idx" type="danger" style="margin:4px 4px 4px 0">{{ err }}</el-tag>
             </div>
 
@@ -234,9 +234,9 @@
         将按所选评分模板创建异步批改任务（不阻塞页面），AI 逐份批改后自动保存评分；低置信度结果会进入"批改复核"队列待人工确认。
       </el-alert>
 
-      <el-card shadow="never" style="background:#f8fbf9">
+      <el-card shadow="never" class="ai-param-card">
         <template #header>
-          <span style="font-weight:600">📋 批改参数（所有学生共用）</span>
+          <span class="ai-card-title"><el-icon><Tickets /></el-icon>批改参数（所有学生共用）</span>
         </template>
         <el-form :model="batchAIForm" label-width="100px" size="small">
           <el-form-item label="评分模板" required>
@@ -315,10 +315,10 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, Document, MagicStick } from '@element-plus/icons-vue'
+import { ArrowLeft, Document, MagicStick, Tickets, EditPen, ChatDotRound, WarningFilled } from '@element-plus/icons-vue'
 import FilePreview from '@/components/FilePreview.vue'
 import PlagiarismDetail from '@/components/PlagiarismDetail.vue'
 import { assignmentApi, submissionApi, downloadFile, plagiarismApi, aiApi, gradingApi } from '@/api'
@@ -543,12 +543,15 @@ function openBatchAI() {
   batchProgress.value = 0
   batchProgressInfo.value = ''
   batchResult.value = null
+  // 复位进行中标记：否则上次任务进行中关闭对话框后，重开时按钮永久禁用、进度条冻结
+  batchGrading.value = false
   if (templateOptions.value.length === 0) loadTemplates()
   batchAIVisible.value = true
 }
 
 function stopBatchPolling() {
   if (batchTimer) { clearInterval(batchTimer); batchTimer = null }
+  batchGrading.value = false
 }
 
 async function handleBatchRefUpload(file) {
@@ -579,9 +582,15 @@ async function doBatchAIGrade() {
       mode: batchAIForm.mode
     })
     ElMessage.success(res.message)
-    // 2. 轮询进度（5秒一次）
+    // 2. 轮询进度（5秒一次；带上限，后端任务异常卡死时不至于永久轮询）
+    let pollCount = 0
     batchTimer = setInterval(async () => {
       try {
+        if (++pollCount > 720) { // 1小时未完成视为异常
+          stopBatchPolling()
+          ElMessage.warning('批改任务长时间未完成，请稍后重新进入页面查看进度')
+          return
+        }
         const p = await gradingApi.taskProgress(route.params.id)
         const { total, success, failed, pending, processing } = p.data.progress
         const done = success + failed
@@ -590,7 +599,6 @@ async function doBatchAIGrade() {
         if (pending + processing === 0 && total > 0) {
           stopBatchPolling()
           batchProgress.value = 100
-          batchGrading.value = false
           const needsReview = p.data.list.filter(x => x.needs_review).length
           batchResult.value = {
             success_count: success,
@@ -609,11 +617,16 @@ async function doBatchAIGrade() {
     ElMessage.error(e.response?.data?.message || '创建批改任务失败')
   }
 }
+
+// 组件卸载时停止轮询：el-dialog 的 close 事件在路由切换销毁组件时不会触发，
+// 否则 interval 永久运行并操作已卸载组件的 ref
+onUnmounted(stopBatchPolling)
 </script>
 
 <style scoped>
 .info-row { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--text-light); margin-top: 8px; }
 .score { font-size: 16px; font-weight: 700; color: var(--primary); }
+.placeholder-text { color: var(--ink-400); }
 .comment-text { display: inline-block; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .grade-student { margin-bottom: 16px; }
 .grade-files { background: var(--bg); padding: 12px; border-radius: 8px; }
@@ -622,9 +635,14 @@ async function doBatchAIGrade() {
 .grade-file .fname { flex: 1; }
 .ai-student { margin-bottom: 16px; font-size: 15px; }
 .ai-score-display { text-align: center; margin: 16px 0; }
-.ai-score-num { font-size: 48px; font-weight: 700; color: var(--primary); }
+.ai-score-num { font-size: 48px; font-weight: 700; color: var(--brand-700); }
 .ai-score-max { font-size: 20px; color: var(--text-light); margin-left: 4px; }
+.ai-param-card { --el-card-bg-color: var(--ink-50); margin-bottom: 16px; }
+.ai-result-card { --el-card-bg-color: var(--brand-50); }
+.ai-card-title { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.ai-card-title .el-icon { color: var(--brand-600); }
 .ai-result-section { margin-bottom: 16px; }
-.ai-section-title { font-weight: 600; font-size: 14px; color: var(--text); margin-bottom: 6px; }
+.ai-section-title { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 14px; color: var(--text); margin-bottom: 6px; }
+.ai-section-title .el-icon { color: var(--brand-600); }
 .ai-section-content { font-size: 14px; line-height: 1.8; color: var(--text); white-space: pre-wrap; background: white; padding: 10px; border-radius: 6px; }
 </style>

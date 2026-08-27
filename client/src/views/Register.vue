@@ -2,7 +2,7 @@
   <div class="auth-container">
     <div class="auth-box">
       <div class="auth-logo">
-        <div class="logo-icon">📚</div>
+        <BrandLogo :size="52" class="logo-mark" />
         <h1>注册新账号</h1>
         <p>加入校园作业管理系统</p>
       </div>
@@ -26,9 +26,9 @@
           <el-input v-model="form.confirmPassword" type="password" placeholder="确认密码" :prefix-icon="Lock" show-password />
         </el-form-item>
         <el-form-item prop="role">
-          <el-radio-group v-model="form.role" style="width:100%">
-            <el-radio-button value="student" style="width:50%">🎓 我是学生</el-radio-button>
-            <el-radio-button value="teacher" style="width:50%">👨‍🏫 我是教师</el-radio-button>
+          <el-radio-group v-model="form.role" class="role-group">
+            <el-radio-button value="student">我是学生</el-radio-button>
+            <el-radio-button value="teacher">我是教师</el-radio-button>
           </el-radio-group>
         </el-form-item>
         <el-form-item prop="email">
@@ -55,6 +55,7 @@ import { ElMessage } from 'element-plus'
 import { User, Lock, Postcard, Message } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 import { schoolApi } from '@/api'
+import BrandLogo from '@/components/BrandLogo.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -129,6 +130,10 @@ onMounted(async () => {
   text-align: center; margin-top: 20px;
   font-size: 14px; color: var(--text-light);
 }
-.link { color: var(--primary); margin-left: 4px; }
+.logo-mark { display: block; margin: 0 auto; }
+.role-group { display: flex; width: 100%; }
+.role-group .el-radio-button { flex: 1; }
+.role-group .el-radio-button :deep(.el-radio-button__inner) { width: 100%; }
+.link { color: var(--brand-700); margin-left: 4px; }
 .link:hover { text-decoration: underline; }
 </style>

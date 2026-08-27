@@ -2,68 +2,100 @@
   <div class="page-container">
     <div class="page-title">数据统计概览</div>
 
-    <!-- 数据卡片 -->
-    <el-row :gutter="20" style="margin-bottom:20px">
-      <el-col :xs="12" :sm="6">
-        <div class="stat-card">
-          <div class="stat-label">用户总数</div>
-          <div class="stat-value">{{ stats.userCount || 0 }}</div>
-          <div class="stat-sub">学生 {{ stats.studentCount }} · 教师 {{ stats.teacherCount }}</div>
-        </div>
-      </el-col>
-      <el-col :xs="12" :sm="6">
-        <div class="stat-card">
-          <div class="stat-label">班级数</div>
-          <div class="stat-value">{{ stats.classCount || 0 }}</div>
-          <div class="stat-sub">课程 {{ stats.courseCount }} 门</div>
-        </div>
-      </el-col>
-      <el-col :xs="12" :sm="6">
-        <div class="stat-card">
-          <div class="stat-label">作业任务</div>
-          <div class="stat-value">{{ stats.assignmentCount || 0 }}</div>
-          <div class="stat-sub">总提交 {{ stats.submissionCount }} 次</div>
-        </div>
-      </el-col>
-      <el-col :xs="12" :sm="6">
-        <div class="stat-card">
-          <div class="stat-label">整体提交率</div>
-          <div class="stat-value">{{ stats.submitRate || 0 }}%</div>
-          <div class="stat-sub" :class="{ danger: stats.unsubmittedTotal > 0 }">
-            未交 {{ stats.unsubmittedTotal }} 人次
-          </div>
-        </div>
-      </el-col>
-    </el-row>
+    <!-- 加载失败（全部请求失败才进入错误态，带重试） -->
+    <EmptyState v-if="loadError" type="error" description="统计数据加载失败，请检查网络后重试" @retry="loadData" />
 
-    <!-- 提交率图表 -->
-    <div class="card-section">
-      <h3 style="margin-bottom:16px">📈 各作业提交率统计</h3>
-      <div ref="chartRef" style="width:100%;height:360px"></div>
-      <div v-if="rates.length === 0" class="empty-box">暂无数据</div>
-    </div>
+    <!-- 加载中：骨架屏 -->
+    <template v-else-if="loading">
+      <el-row :gutter="20" style="margin-bottom:20px">
+        <el-col v-for="i in 4" :key="i" :xs="12">
+          <div class="stat-card">
+            <el-skeleton animated>
+              <template #template>
+                <el-skeleton-item variant="text" style="width:45%;height:14px" />
+                <el-skeleton-item variant="h1" style="width:55%;height:28px;margin-top:10px" />
+              </template>
+            </el-skeleton>
+          </div>
+        </el-col>
+      </el-row>
+      <div class="card-section">
+        <el-skeleton animated :rows="6" />
+      </div>
+    </template>
+
+    <template v-else>
+      <!-- 数据卡片 -->
+      <el-row :gutter="20" style="margin-bottom:20px">
+        <el-col :xs="12" :md="6">
+          <div class="stat-card">
+            <div class="stat-label">用户总数</div>
+            <div class="stat-value">{{ stats.userCount || 0 }}</div>
+            <div class="stat-sub">学生 {{ stats.studentCount }} · 教师 {{ stats.teacherCount }}</div>
+          </div>
+        </el-col>
+        <el-col :xs="12" :md="6">
+          <div class="stat-card">
+            <div class="stat-label">班级数</div>
+            <div class="stat-value">{{ stats.classCount || 0 }}</div>
+            <div class="stat-sub">课程 {{ stats.courseCount }} 门</div>
+          </div>
+        </el-col>
+        <el-col :xs="12" :md="6">
+          <div class="stat-card">
+            <div class="stat-label">作业任务</div>
+            <div class="stat-value">{{ stats.assignmentCount || 0 }}</div>
+            <div class="stat-sub">总提交 {{ stats.submissionCount }} 次</div>
+          </div>
+        </el-col>
+        <el-col :xs="12" :md="6">
+          <div class="stat-card">
+            <div class="stat-label">整体提交率</div>
+            <div class="stat-value">{{ stats.submitRate || 0 }}%</div>
+            <div class="stat-sub" :class="{ danger: stats.unsubmittedTotal > 0 }">
+              未交 {{ stats.unsubmittedTotal }} 人次
+            </div>
+          </div>
+        </el-col>
+      </el-row>
+
+      <!-- 提交率图表 -->
+      <div class="card-section">
+        <h3 style="margin-bottom:16px"><el-icon><TrendCharts /></el-icon>各作业提交率统计</h3>
+        <div v-if="rates.length > 0" ref="chartRef" style="width:100%;height:360px"></div>
+        <EmptyState v-else size="compact" description="暂无作业提交数据" />
+      </div>
+    </template>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import * as echarts from 'echarts'
+import { TrendCharts } from '@element-plus/icons-vue'
 import { statsApi } from '@/api'
 
 const stats = ref({})
 const rates = ref([])
 const chartRef = ref(null)
+const loading = ref(true)
+const loadError = ref(false)
 let chart = null
 let resizeHandler = null
 
 async function loadData() {
-  try {
-    const [s, r] = await Promise.all([statsApi.overview(), statsApi.assignmentRates()])
-    stats.value = s.data
-    rates.value = r.data
+  loading.value = true
+  loadError.value = false
+  // allSettled 保留部分成功：仅全部失败才进入错误态
+  const [s, r] = await Promise.allSettled([statsApi.overview(), statsApi.assignmentRates()])
+  if (s.status === 'fulfilled') stats.value = s.value.data
+  if (r.status === 'fulfilled') rates.value = r.value.data
+  loadError.value = s.status === 'rejected' && r.status === 'rejected'
+  loading.value = false
+  if (!loadError.value) {
     await nextTick()
     renderChart()
-  } catch (e) {}
+  }
 }
 
 function renderChart() {
@@ -85,7 +117,7 @@ function renderChart() {
     series: [
       {
         name: '已交', type: 'bar', stack: 'total', barWidth: '40%',
-        itemStyle: { color: '#52c4a0', borderRadius: [0, 0, 0, 0] },
+        itemStyle: { color: '#3da884', borderRadius: [0, 0, 0, 0] },
         data: data.map(d => d.submitted)
       },
       {
