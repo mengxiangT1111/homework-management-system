@@ -117,15 +117,41 @@
               <el-tab-pane label="图片样例" name="image">
                 <div class="sample-upload-area">
                   <el-upload action="#" :auto-upload="false" :show-file-list="false" accept="image/*" @change="(file) => handleEditSample(file, 'image')">
-                    <div v-if="editSampleImages.length === 0" class="upload-placeholder">
+                    <div class="upload-placeholder">
                       <el-icon size="32"><Plus /></el-icon>
                       <span>上传图片样例</span>
+                      <span class="upload-tip">支持 JPG、PNG 格式</span>
                     </div>
                   </el-upload>
-                  <div v-if="editSampleImages.length > 0" class="sample-preview-grid">
-                    <div v-for="(img, idx) in editSampleImages" :key="idx" class="sample-item">
-                      <img :src="img.url" alt="样例" />
+                  <div v-if="existingImages.length || editSampleImages.length" class="sample-preview-grid">
+                    <div v-for="s in existingImages" :key="'e-' + s.url" class="sample-item">
+                      <img :src="fileUrl(s.url)" alt="样例图片" />
+                      <div class="sample-actions"><el-button type="danger" size="small" circle @click="removeExisting(s)"><el-icon><Delete /></el-icon></el-button></div>
+                    </div>
+                    <div v-for="(img, idx) in editSampleImages" :key="'n-' + idx" class="sample-item">
+                      <img :src="img.url" alt="样例图片" />
                       <div class="sample-actions"><el-button type="danger" size="small" circle @click="removeEditSample('image', idx)"><el-icon><Delete /></el-icon></el-button></div>
+                    </div>
+                  </div>
+                </div>
+              </el-tab-pane>
+              <el-tab-pane label="视频样例" name="video">
+                <div class="sample-upload-area">
+                  <el-upload action="#" :auto-upload="false" :show-file-list="false" accept="video/*" @change="(file) => handleEditSample(file, 'video')">
+                    <div class="upload-placeholder">
+                      <el-icon size="32"><Plus /></el-icon>
+                      <span>上传视频样例</span>
+                      <span class="upload-tip">支持 MP4、AVI、MOV 格式，最大 100MB</span>
+                    </div>
+                  </el-upload>
+                  <div v-if="existingVideos.length || editSampleVideos.length" class="sample-video-list">
+                    <div v-for="s in existingVideos" :key="'e-' + s.url" class="video-item">
+                      <video :src="fileUrl(s.url)" controls></video>
+                      <el-button type="danger" size="small" @click="removeExisting(s)"><el-icon><Delete /></el-icon> 删除</el-button>
+                    </div>
+                    <div v-for="(v, idx) in editSampleVideos" :key="'n-' + idx" class="video-item">
+                      <video :src="v.url" controls></video>
+                      <el-button type="danger" size="small" @click="removeEditSample('video', idx)"><el-icon><Delete /></el-icon> 删除</el-button>
                     </div>
                   </div>
                 </div>
@@ -133,13 +159,19 @@
               <el-tab-pane label="文档样例" name="document">
                 <div class="sample-upload-area">
                   <el-upload action="#" :auto-upload="false" :show-file-list="false" accept=".doc,.docx,.pdf" @change="(file) => handleEditSample(file, 'document')">
-                    <div v-if="editSampleDocs.length === 0" class="upload-placeholder">
+                    <div class="upload-placeholder">
                       <el-icon size="32"><Plus /></el-icon>
                       <span>上传文档样例</span>
+                      <span class="upload-tip">支持 Word、PDF 格式</span>
                     </div>
                   </el-upload>
-                  <div v-if="editSampleDocs.length > 0" class="sample-document-list">
-                    <div v-for="(doc, idx) in editSampleDocs" :key="idx" class="document-item">
+                  <div v-if="existingDocs.length || editSampleDocs.length" class="sample-document-list">
+                    <div v-for="s in existingDocs" :key="'e-' + s.url" class="document-item">
+                      <el-icon><Document /></el-icon>
+                      <span class="doc-name">{{ s.name }}</span>
+                      <el-button type="danger" size="small" @click="removeExisting(s)"><el-icon><Delete /></el-icon></el-button>
+                    </div>
+                    <div v-for="(doc, idx) in editSampleDocs" :key="'n-' + idx" class="document-item">
                       <el-icon><Document /></el-icon>
                       <span class="doc-name">{{ doc.name }}</span>
                       <el-button type="danger" size="small" @click="removeEditSample('document', idx)"><el-icon><Delete /></el-icon></el-button>
@@ -148,6 +180,7 @@
                 </div>
               </el-tab-pane>
             </el-tabs>
+            <div class="sample-note">删除已有样例并保存后生效；新上传的样例在保存时才上传服务器</div>
           </div>
         </el-form-item>
       </el-form>
@@ -160,12 +193,13 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Search, Document, Delete, InfoFilled, ArrowDown } from '@element-plus/icons-vue'
 import { assignmentApi, submissionApi, downloadFile } from '@/api'
 import { uploadFileChunked } from '@/utils/upload'
 import { toPickerValue } from '@/utils/format'
+import { fileUrl } from '@/utils/fileUrl'
 
 const list = ref([])
 const total = ref(0)
@@ -182,6 +216,7 @@ const editForm = reactive({
   max_files: 5, max_size_mb: 100, description: '', need_grading: false, sample_files: []
 })
 const editSampleImages = ref([])
+const editSampleVideos = ref([])
 const editSampleDocs = ref([])
 const editSampleTab = ref('image')
 const formatOptions = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'jpg', 'jpeg', 'png', 'gif', 'zip', 'rar', 'txt']
@@ -225,16 +260,36 @@ function openEdit(row) {
 }
 
 function handleEditSample(file, type) {
-  if (file.raw.size > 20 * 1024 * 1024) { ElMessage.warning('文件大小不能超过 20MB'); return }
+  const maxSize = type === 'video' ? 100 : 20
+  if (file.raw.size > maxSize * 1024 * 1024) { ElMessage.warning(`文件大小不能超过 ${maxSize}MB`); return }
   const url = URL.createObjectURL(file.raw)
   if (type === 'image') editSampleImages.value.push({ url, file: file.raw, name: file.name })
+  else if (type === 'video') editSampleVideos.value.push({ url, file: file.raw, name: file.name })
   else if (type === 'document') editSampleDocs.value.push({ url, file: file.raw, name: file.name })
   ElMessage.success(`已添加样例文件：${file.name}`)
 }
 
 function removeEditSample(type, idx) {
   if (type === 'image') editSampleImages.value.splice(idx, 1)
+  else if (type === 'video') editSampleVideos.value.splice(idx, 1)
   else if (type === 'document') editSampleDocs.value.splice(idx, 1)
+}
+
+// 已保存样例按类型分组（type 为创建时记录的 MIME，空缺时按扩展名兜底）
+function sampleKind(s) {
+  const t = (s.type || '').toLowerCase()
+  const n = (s.name || '').toLowerCase()
+  if (t.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp)$/.test(n)) return 'image'
+  if (t.startsWith('video/') || /\.(mp4|avi|mov|mkv|webm)$/.test(n)) return 'video'
+  return 'document'
+}
+const existingImages = computed(() => editForm.sample_files.filter(s => sampleKind(s) === 'image'))
+const existingVideos = computed(() => editForm.sample_files.filter(s => sampleKind(s) === 'video'))
+const existingDocs = computed(() => editForm.sample_files.filter(s => sampleKind(s) === 'document'))
+
+// 移除已保存样例（点保存后才真正生效）
+function removeExisting(s) {
+  editForm.sample_files = editForm.sample_files.filter(x => x !== s)
 }
 
 async function saveEdit() {
@@ -243,8 +298,8 @@ async function saveEdit() {
   }
   savingEdit.value = true
   try {
-    // 上传新加的样例文件
-    const allNew = [...editSampleImages.value, ...editSampleDocs.value]
+      // 上传新加的样例文件
+      const allNew = [...editSampleImages.value, ...editSampleVideos.value, ...editSampleDocs.value]
     const uploadedSamples = []
     for (const s of allNew) {
       try {
@@ -368,5 +423,28 @@ onMounted(loadData)
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.sample-section { width: 100%; }
+.sample-upload-area { min-height: 120px; }
+.upload-tip { margin-top: 4px; font-size: 12px; color: var(--ink-500); }
+.sample-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-light);
+}
+.sample-video-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+.video-item video {
+  max-width: 100%;
+  max-height: 200px;
+  border-radius: 8px;
+  background: #000;
 }
 </style>
