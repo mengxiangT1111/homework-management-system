@@ -29,9 +29,14 @@
               />
               <span class="sample-label">{{ s.name }}</span>
             </template>
-            <!-- 视频：内嵌在线播放 -->
+            <!-- 视频：内嵌在线播放，悬停出"放大"浮层 -->
             <template v-else-if="isVideoSample(s)">
-              <video :src="sampleUrl(s.url)" controls class="sample-video"></video>
+              <div class="sample-video-box">
+                <video :src="sampleUrl(s.url)" controls preload="metadata" class="sample-video"></video>
+                <div class="video-zoom" title="放大播放" @click="openVideoPreview(s)">
+                  <el-icon :size="14"><FullScreen /></el-icon>放大
+                </div>
+              </div>
               <span class="sample-label">{{ s.name }}</span>
             </template>
             <!-- 文档：点击弹窗预览（PDF 内嵌显示） -->
@@ -99,6 +104,12 @@
 
     <!-- 预览组件 -->
     <FilePreview v-model="previewVisible" :file-path="previewPath" :file-name="previewName" />
+
+    <!-- 视频样例放大播放 -->
+    <el-dialog v-model="videoPreview.visible" :title="videoPreview.name" width="960px" top="5vh" destroy-on-close append-to-body>
+      <video v-if="videoPreview.visible" :src="videoPreview.url" controls autoplay
+        style="display:block;width:100%;max-height:72vh;border-radius:8px;background:#000"></video>
+    </el-dialog>
   </div>
 </template>
 
@@ -135,6 +146,12 @@ import { computed } from 'vue'
 
 function sampleUrl(url) {
   return resolveFileUrl(url)
+}
+
+// 视频样例放大播放（destroy-on-close 卸载播放器即停止播放）
+const videoPreview = ref({ visible: false, url: '', name: '' })
+function openVideoPreview(s) {
+  videoPreview.value = { visible: true, url: sampleUrl(s.url), name: s.name || '视频样例' }
 }
 
 // 样例类型判断：优先 MIME，扩展名兜底（历史数据可能缺 type）
@@ -281,4 +298,24 @@ onMounted(loadData)
 .sample-link:hover {
   text-decoration: underline;
 }
+.sample-video-box { position: relative; width: 100%; }
+.video-zoom {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(23, 43, 36, 0.62);
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.sample-video-box:hover .video-zoom { opacity: 1; }
+/* 触屏无 hover：常显 */
+@media (hover: none) { .video-zoom { opacity: 0.85; } }
 </style>
