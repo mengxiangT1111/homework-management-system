@@ -87,7 +87,7 @@
     </div>
 
     <!-- 批阅对话框 -->
-    <el-dialog v-model="gradeVisible" title="批阅作业" width="700px" top="5vh">
+    <el-dialog v-model="gradeVisible" title="批阅作业" width="720px" top="5vh">
       <div v-if="current" class="grade-content">
         <div class="grade-student">
           <strong>{{ current.real_name }}</strong>（{{ current.username }}）
@@ -229,7 +229,7 @@
     </el-dialog>
 
     <!-- AI 批量批改对话框（新版：模板化 + 异步队列） -->
-    <el-dialog v-model="batchAIVisible" title="AI 一键批量批改" width="700px" top="5vh" @close="stopBatchPolling">
+    <el-dialog v-model="batchAIVisible" title="AI 一键批量批改" width="720px" top="5vh" @close="stopBatchPolling">
       <el-alert type="info" :closable="false" style="margin-bottom:16px">
         将按所选评分模板创建异步批改任务（不阻塞页面），AI 逐份批改后自动保存评分；低置信度结果会进入"批改复核"队列待人工确认。
       </el-alert>

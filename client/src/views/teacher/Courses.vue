@@ -36,7 +36,7 @@
     </div>
 
     <!-- 新增课程对话框 -->
-    <el-dialog v-model="createVisible" title="新增课程" width="520px">
+    <el-dialog v-model="createVisible" title="新增课程" width="560px">
       <el-form :model="createForm" label-width="90px">
         <el-form-item label="课程名称" required>
           <el-input v-model="createForm.name" placeholder="如：数据结构" maxlength="100" />
@@ -60,7 +60,7 @@
     </el-dialog>
 
     <!-- 课代表管理对话框 -->
-    <el-dialog v-model="assistantVisible" :title="`课代表管理 - ${currentCourse?.name || ''}`" width="600px">
+    <el-dialog v-model="assistantVisible" :title="`课代表管理 - ${currentCourse?.name || ''}`" width="720px">
       <el-alert type="info" :closable="false" style="margin-bottom:16px">
         课代表可协助你收集本课程作业：查看提交进度、催交未交同学、打包下载提交文件、发布/编辑作业。
       </el-alert>

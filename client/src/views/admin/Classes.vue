@@ -46,7 +46,7 @@
     </div>
 
     <!-- 新增/编辑对话框 -->
-    <el-dialog v-model="formVisible" :title="editId ? '编辑班级' : '新增班级'" width="500px">
+    <el-dialog v-model="formVisible" :title="editId ? '编辑班级' : '新增班级'" width="560px">
       <el-form :model="form" label-width="90px">
         <el-form-item label="所属学校" required>
           <el-select v-model="form.school_id" placeholder="选择学校" filterable style="width:100%" @change="onSchoolChange">
@@ -75,7 +75,7 @@
     </el-dialog>
 
     <!-- 学生管理对话框 -->
-    <el-dialog v-model="studentVisible" :title="`${currentClass?.name} - 学生管理`" width="700px">
+    <el-dialog v-model="studentVisible" :title="`${currentClass?.name} - 学生管理`" width="720px">
       <div style="margin-bottom:12px;display:flex;gap:8px">
         <el-button type="primary" size="small" @click="openAddStudent">+ 添加学生</el-button>
         <span style="color:var(--text-light);font-size:13px;line-height:32px">共 {{ students.length }} 名学生</span>
@@ -110,7 +110,7 @@
     </el-dialog>
 
     <!-- 添加学生对话框 -->
-    <el-dialog v-model="addStudentVisible" title="添加学生到班级" width="500px">
+    <el-dialog v-model="addStudentVisible" title="添加学生到班级" width="560px">
       <el-select v-model="selectedStudents" multiple filterable placeholder="搜索并选择学生" style="width:100%">
         <el-option v-for="s in allStudents" :key="s.id" :label="`${s.real_name}（${s.username}）`" :value="s.id" />
       </el-select>

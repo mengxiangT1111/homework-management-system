@@ -217,14 +217,14 @@ onMounted(loadData)
 .overdue { color: var(--danger); font-weight: 600; }
 .desc-box { background: var(--bg); padding: 12px; border-radius: 8px; margin: 12px 0; line-height: 1.8; font-size: 14px; }
 .format-box { font-size: 13px; color: var(--text-light); margin-top: 8px; }
-.comment-box { background: #f0faf6; padding: 12px; border-radius: 8px; border-left: 4px solid var(--primary); margin-bottom: 16px; line-height: 1.8; }
+.comment-box { background: var(--brand-50); padding: 12px; border-radius: 8px; border-left: 4px solid var(--primary); margin-bottom: 16px; line-height: 1.8; }
 .submitted-files { margin-top: 8px; }
 .files-title { font-weight: 500; margin-bottom: 8px; }
 .sub-file { display: flex; align-items: center; gap: 10px; padding: 8px; background: var(--bg); border-radius: 6px; margin-bottom: 6px; font-size: 13px; }
 .sub-file .file-name { flex: 1; }
 .sub-file .file-size { color: var(--text-light); }
 .sample-section {
-  background: #f8fbf9;
+  background: var(--ink-50);
   padding: 16px;
   border-radius: 8px;
   margin: 12px 0;

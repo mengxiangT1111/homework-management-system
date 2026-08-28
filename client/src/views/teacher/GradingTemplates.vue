@@ -70,7 +70,7 @@
     </div>
 
     <!-- 编辑器对话框 -->
-    <el-dialog v-model="editorVisible" :title="editingId ? '编辑模板（草稿）' : '新建模板'" width="980px" top="3vh">
+    <el-dialog v-model="editorVisible" :title="editingId ? '编辑模板（草稿）' : '新建模板'" width="960px" top="3vh">
       <el-form :model="form" label-width="80px" size="small">
         <el-row :gutter="12">
           <el-col :span="8"><el-form-item label="名称" required><el-input v-model="form.name" placeholder="如：高中议论文批改" /></el-form-item></el-col>

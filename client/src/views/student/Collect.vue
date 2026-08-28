@@ -62,7 +62,7 @@
     </div>
 
     <!-- 未交名单对话框 -->
-    <el-dialog v-model="unsubVisible" :title="`未交名单 - ${currentAssignment?.title}`" width="600px">
+    <el-dialog v-model="unsubVisible" :title="`未交名单 - ${currentAssignment?.title}`" width="720px">
       <div v-if="unsubData">
         <el-alert type="warning" :closable="false" style="margin-bottom:16px">
           共 {{ unsubData.total_students }} 人，已交 {{ unsubData.submitted_count }} 人，未交 <strong>{{ unsubData.unsubmitted_count }}</strong> 人

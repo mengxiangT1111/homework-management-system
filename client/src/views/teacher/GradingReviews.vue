@@ -67,7 +67,7 @@
     </div>
 
     <!-- 复核对话框 -->
-    <el-dialog v-model="reviewVisible" title="人工复核 AI 批改" width="820px" top="3vh">
+    <el-dialog v-model="reviewVisible" title="人工复核 AI 批改" width="720px" top="3vh">
       <div v-if="current">
         <GradingResultCard :result="reviewPayload" :show-review-reasons="true" />
 

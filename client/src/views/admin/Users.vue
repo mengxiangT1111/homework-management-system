@@ -70,7 +70,7 @@
     </div>
 
     <!-- 新增对话框 -->
-    <el-dialog v-model="createVisible" :title="createRole === 'teacher' ? '新增教师账号' : '新增学生账号'" width="480px">
+    <el-dialog v-model="createVisible" :title="createRole === 'teacher' ? '新增教师账号' : '新增学生账号'" width="560px">
       <el-form :model="createForm" label-width="90px">
         <el-form-item label="学校" required>
           <el-select v-model="createForm.school_id" placeholder="选择学校" style="width:100%">

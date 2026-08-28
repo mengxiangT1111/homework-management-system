@@ -3,7 +3,7 @@
     :model-value="modelValue"
     @update:model-value="$emit('update:modelValue', $event)"
     title="拓扑图结构对比"
-    width="900px"
+    width="960px"
     top="3vh"
     class="topology-comparison-dialog"
   >

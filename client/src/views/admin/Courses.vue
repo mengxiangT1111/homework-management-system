@@ -52,7 +52,7 @@
     </div>
 
     <!-- 新增/编辑 -->
-    <el-dialog v-model="formVisible" :title="editId ? '编辑课程' : '新增课程'" width="520px">
+    <el-dialog v-model="formVisible" :title="editId ? '编辑课程' : '新增课程'" width="560px">
       <el-form :model="form" label-width="90px">
         <el-form-item label="课程名" required>
           <el-input v-model="form.name" placeholder="如：高等数学" />

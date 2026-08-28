@@ -27,7 +27,7 @@
     </div>
 
     <!-- 加入班级对话框 -->
-    <el-dialog v-model="showJoin" title="选择班级加入" width="500px">
+    <el-dialog v-model="showJoin" title="选择班级加入" width="560px">
       <el-select v-model="selectedClass" placeholder="请选择班级" style="width:100%" filterable>
         <el-option v-for="c in availableClasses" :key="c.id" :label="`${c.grade} - ${c.name}`" :value="c.id" />
       </el-select>

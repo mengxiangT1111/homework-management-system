@@ -82,7 +82,7 @@
     </div>
 
     <!-- 编辑作业对话框 -->
-    <el-dialog v-model="editVisible" title="修改作业" width="600px" top="5vh">
+    <el-dialog v-model="editVisible" title="修改作业" width="720px" top="5vh">
       <el-form :model="editForm" label-width="110px">
         <el-form-item label="作业标题" required>
           <el-input v-model="editForm.title" maxlength="100" />
