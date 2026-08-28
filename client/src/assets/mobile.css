@@ -288,3 +288,12 @@
     position: static !important;
   }
 }
+/* 18. 平板横屏（769-1100px）：表格密度压缩，给关键列让出可读宽度
+   （el-table 为 colgroup 固定布局，CSS 藏列会导致列错位，故用密度方案） */
+@media (min-width: 769px) and (max-width: 1100px) {
+  .el-table { font-size: 13px; }
+  .el-table .el-table__cell { padding: 7px 0; }
+  .el-table .cell { padding: 0 10px; }
+  .page-container { padding: 14px; }
+  .card-section { padding: 16px; }
+}
