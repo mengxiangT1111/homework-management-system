@@ -53,22 +53,24 @@
         </el-table-column>
         <el-table-column label="操作" width="210" align="center" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="$router.push(`/teacher/assignments/${row.id}/review`)">批阅</el-button>
-            <el-button link type="success" @click="downloadAll(row)">打包下载</el-button>
-            <el-dropdown trigger="click" @command="(cmd) => rowCommand(cmd, row)">
-              <el-button link type="primary">
-                更多<el-icon><ArrowDown /></el-icon>
-              </el-button>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item command="export">导出未交名单</el-dropdown-item>
-                  <el-dropdown-item command="edit">编辑</el-dropdown-item>
-                  <el-dropdown-item v-if="row.submit_count === 0" command="delete" divided>
-                    <span style="color:var(--color-danger)">删除</span>
-                  </el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
+            <div class="op-row">
+              <el-button link type="primary" @click="$router.push(`/teacher/assignments/${row.id}/review`)">批阅</el-button>
+              <el-button link type="success" @click="downloadAll(row)">打包下载</el-button>
+              <el-dropdown trigger="click" @command="(cmd) => rowCommand(cmd, row)">
+                <el-button link type="primary" class="more-btn">
+                  更多<el-icon><ArrowDown /></el-icon>
+                </el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="export">导出未交名单</el-dropdown-item>
+                    <el-dropdown-item command="edit">编辑</el-dropdown-item>
+                    <el-dropdown-item v-if="row.submit_count === 0" command="delete" divided>
+                      <span style="color:var(--color-danger)">删除</span>
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -280,3 +282,20 @@ async function deleteAssignment(row) {
 
 onMounted(loadData)
 </script>
+
+<style scoped>
+/* 操作列：flex 居中对齐，消除 el-dropdown 触发器与相邻按钮的行内基线错位 */
+.op-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.op-row :deep(.el-button + .el-button),
+.op-row :deep(.el-button + .el-dropdown) {
+  margin-left: 0;
+}
+.more-btn :deep(.el-icon) {
+  margin-left: 2px;
+}
+</style>
