@@ -298,4 +298,75 @@ onMounted(loadData)
 .more-btn :deep(.el-icon) {
   margin-left: 2px;
 }
+
+/* ===== 编辑弹窗：提交样例区（与 CreateAssignment 保持一致） ===== */
+.upload-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 120px;
+  border: 2px dashed var(--ink-300);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  color: var(--text-light);
+  background: var(--ink-50);
+}
+.upload-placeholder:hover {
+  border-color: var(--brand-400);
+  color: var(--brand-600);
+}
+.upload-placeholder span {
+  margin-top: 8px;
+  font-size: 14px;
+}
+.sample-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.sample-item {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  aspect-ratio: 1;
+  background: var(--ink-100);
+  border: 1px solid var(--ink-100);
+}
+.sample-item img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.sample-actions {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+}
+.sample-document-list {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.document-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--ink-100);
+  border-radius: 8px;
+  background: var(--ink-50);
+  font-size: 13px;
+}
+.document-item .doc-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 </style>
