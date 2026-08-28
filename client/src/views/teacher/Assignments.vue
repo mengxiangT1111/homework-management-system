@@ -8,11 +8,13 @@
     </div>
 
     <div class="card-section">
-      <div class="filter-bar">
-        <el-input v-model="keyword" placeholder="搜索作业标题" clearable style="width:240px" @keyup.enter="search" @clear="search">
-          <template #prefix><el-icon><Search /></el-icon></template>
-        </el-input>
-        <el-button type="primary" @click="search">搜索</el-button>
+      <div class="table-toolbar">
+        <div class="toolbar-filters">
+          <el-input v-model="keyword" placeholder="搜索作业标题，回车搜索" clearable style="width:260px" @keyup.enter="search" @clear="search">
+            <template #prefix><el-icon><Search /></el-icon></template>
+          </el-input>
+        </div>
+        <span class="toolbar-meta">共 {{ total }} 个作业</span>
       </div>
 
       <div v-if="list.length === 0" class="empty-box">
@@ -20,7 +22,7 @@
         <p style="margin-top:12px">还没有发布作业</p>
       </div>
 
-      <el-table v-else :data="list" stripe>
+      <el-table v-else v-loading="loading" :data="list" stripe>
         <el-table-column label="作业标题" min-width="180">
           <template #default="{ row }">
             <div style="font-weight:500">{{ row.title }}</div>
@@ -49,13 +51,24 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="320" align="center" fixed="right">
+        <el-table-column label="操作" width="210" align="center" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="$router.push(`/teacher/assignments/${row.id}/review`)">批阅</el-button>
             <el-button link type="success" @click="downloadAll(row)">打包下载</el-button>
-            <el-button link type="warning" @click="exportExcel(row)">导出未交</el-button>
-            <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
-            <el-button v-if="row.submit_count === 0" link type="danger" @click="deleteAssignment(row)">删除</el-button>
+            <el-dropdown trigger="click" @command="(cmd) => rowCommand(cmd, row)">
+              <el-button link type="primary">
+                更多<el-icon><ArrowDown /></el-icon>
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="export">导出未交名单</el-dropdown-item>
+                  <el-dropdown-item command="edit">编辑</el-dropdown-item>
+                  <el-dropdown-item v-if="row.submit_count === 0" command="delete" divided>
+                    <span style="color:var(--color-danger)">删除</span>
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
           </template>
         </el-table-column>
       </el-table>
@@ -63,7 +76,7 @@
       <el-pagination
         v-if="total > 0" background layout="prev, pager, next, total"
         :total="total" :page-size="pageSize" :current-page="page"
-        style="margin-top:20px; justify-content:center; display:flex"
+        class="table-footer"
         @current-change="handlePage"
       />
     </div>
@@ -147,7 +160,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Search, Document, Delete, InfoFilled } from '@element-plus/icons-vue'
+import { Plus, Search, Document, Delete, InfoFilled, ArrowDown } from '@element-plus/icons-vue'
 import { assignmentApi, submissionApi, downloadFile } from '@/api'
 import { uploadFileChunked } from '@/utils/upload'
 import { toPickerValue } from '@/utils/format'
@@ -156,6 +169,7 @@ const list = ref([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = 10
+const loading = ref(false)
 const keyword = ref('')
 
 const editVisible = ref(false)
@@ -173,11 +187,21 @@ const formatOptions = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'jpg'
 function formatTime(t) { return new Date(t).toLocaleString('zh-CN') }
 
 async function loadData() {
-  const res = await assignmentApi.list({ page: page.value, pageSize, keyword: keyword.value })
-  list.value = res.data.list
-  total.value = res.data.total
+  loading.value = true
+  try {
+    const res = await assignmentApi.list({ page: page.value, pageSize, keyword: keyword.value })
+    list.value = res.data.list
+    total.value = res.data.total
+  } finally { loading.value = false }
 }
 function handlePage(p) { page.value = p; loadData() }
+
+// 操作列"更多"下拉命令分发
+function rowCommand(cmd, row) {
+  if (cmd === 'export') exportExcel(row)
+  else if (cmd === 'edit') openEdit(row)
+  else if (cmd === 'delete') deleteAssignment(row)
+}
 
 // 搜索时重置到第一页，避免停留在超出结果页数的空页
 function search() { page.value = 1; loadData() }

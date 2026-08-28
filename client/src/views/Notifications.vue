@@ -32,7 +32,7 @@
         v-if="total > 0"
         background layout="prev, pager, next" :total="total"
         :page-size="pageSize" :current-page="page"
-        style="margin-top:20px; justify-content:center; display:flex"
+        class="table-footer"
         @current-change="handlePage"
       />
     </div>

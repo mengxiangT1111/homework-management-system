@@ -8,7 +8,7 @@
         <p style="margin-top:12px">还没有提交记录</p>
       </div>
 
-      <el-table v-else :data="list" stripe>
+      <el-table v-else v-loading="loading" :data="list" stripe>
         <el-table-column label="作业" min-width="200">
           <template #default="{ row }">
             <div class="sub-title">{{ row.assignment?.title }}</div>
@@ -49,7 +49,7 @@
       <el-pagination
         v-if="total > 0" background layout="prev, pager, next, total"
         :total="total" :page-size="pageSize" :current-page="page"
-        style="margin-top:20px; justify-content:center; display:flex"
+        class="table-footer"
         @current-change="handlePage"
       />
     </div>
@@ -67,25 +67,30 @@ import { ref, onMounted } from 'vue'
 import { UploadFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { submissionApi, gradingApi } from '@/api'
+import { SUBMISSION_STATUS, statusOf } from '@/utils/statusMaps'
 import GradingResultCard from '@/components/GradingResultCard.vue'
 
 const list = ref([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = 10
+const loading = ref(false)
 
 const gradingVisible = ref(false)
 const gradingResult = ref(null)
 const gradingLoadingId = ref(null)
 
 function formatTime(t) { return new Date(t).toLocaleString('zh-CN') }
-function statusText(s) { return { submitted: '待批改', graded: '已通过', returned: '已退回' }[s] || s }
-function statusType(s) { return { submitted: 'warning', graded: 'success', returned: 'info' }[s] || 'info' }
+const statusText = (s) => statusOf(SUBMISSION_STATUS, s).text
+const statusType = (s) => statusOf(SUBMISSION_STATUS, s).type
 
 async function loadData() {
-  const res = await submissionApi.myList({ page: page.value, pageSize })
-  list.value = res.data.list
-  total.value = res.data.total
+  loading.value = true
+  try {
+    const res = await submissionApi.myList({ page: page.value, pageSize })
+    list.value = res.data.list
+    total.value = res.data.total
+  } finally { loading.value = false }
 }
 function handlePage(p) { page.value = p; loadData() }
 

@@ -61,7 +61,7 @@
       <el-pagination
         v-if="total > pageSize" background layout="prev, pager, next, total"
         :total="total" :page-size="pageSize" :current-page="page"
-        style="margin-top:20px; justify-content:center; display:flex"
+        class="table-footer"
         @current-change="handlePage"
       />
     </div>
@@ -125,6 +125,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import GradingResultCard from '@/components/GradingResultCard.vue'
 import { gradingApi } from '@/api'
+import { REVIEW_STATUS, statusOf } from '@/utils/statusMaps'
 
 const list = ref([])
 const total = ref(0)
@@ -157,8 +158,8 @@ const reviewPayload = computed(() => {
   }
 })
 
-const statusText = (s) => ({ pending: '待复核', approved: '已通过', adjusted: '已调整', rejected: '已否决' }[s] || s)
-const statusType = (s) => ({ pending: 'warning', approved: 'success', adjusted: '', rejected: 'danger' }[s] || 'info')
+const statusText = (s) => statusOf(REVIEW_STATUS, s).text
+const statusType = (s) => statusOf(REVIEW_STATUS, s).type
 const formatTime = (t) => new Date(t).toLocaleString('zh-CN')
 
 async function loadList() {

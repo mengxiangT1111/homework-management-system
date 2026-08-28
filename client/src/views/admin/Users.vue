@@ -9,25 +9,27 @@
     </div>
 
     <div class="card-section">
-      <div class="filter-bar">
-        <el-select v-model="roleFilter" placeholder="角色" clearable style="width:120px" @change="search">
-          <el-option label="全部" value="" />
-          <el-option label="学生" value="student" />
-          <el-option label="教师" value="teacher" />
-          <el-option label="管理员" value="admin" />
-        </el-select>
-        <el-select v-model="statusFilter" placeholder="状态" clearable style="width:140px" @change="search">
-          <el-option label="全部" value="" />
-          <el-option label="启用" :value="1" />
-          <el-option label="待审核/禁用" :value="0" />
-        </el-select>
-        <el-input v-model="keyword" placeholder="搜索学号/姓名/邮箱" clearable style="width:260px" @keyup.enter="search" @clear="search">
-          <template #prefix><el-icon><Search /></el-icon></template>
-        </el-input>
-        <el-button type="primary" @click="search">搜索</el-button>
+      <div class="table-toolbar">
+        <div class="toolbar-filters">
+          <el-select v-model="roleFilter" placeholder="角色" clearable style="width:120px" @change="search">
+            <el-option label="全部" value="" />
+            <el-option label="学生" value="student" />
+            <el-option label="教师" value="teacher" />
+            <el-option label="管理员" value="admin" />
+          </el-select>
+          <el-select v-model="statusFilter" placeholder="状态" clearable style="width:140px" @change="search">
+            <el-option label="全部" value="" />
+            <el-option label="启用" :value="1" />
+            <el-option label="待审核/禁用" :value="0" />
+          </el-select>
+          <el-input v-model="keyword" placeholder="搜索学号/姓名/邮箱，回车搜索" clearable style="width:260px" @keyup.enter="search" @clear="search">
+            <template #prefix><el-icon><Search /></el-icon></template>
+          </el-input>
+        </div>
+        <span class="toolbar-meta">共 {{ total }} 名用户</span>
       </div>
 
-      <el-table :data="list" stripe>
+      <el-table v-loading="loading" :data="list" stripe>
         <el-table-column label="学号" prop="username" width="130" />
         <el-table-column label="姓名" prop="real_name" width="120" />
         <el-table-column label="学校" width="150">
@@ -63,7 +65,7 @@
 
       <el-pagination v-if="total > 0" background layout="prev, pager, next, total"
         :total="total" :page-size="pageSize" :current-page="page"
-        style="margin-top:20px; justify-content:center; display:flex"
+        class="table-footer"
         @current-change="handlePage" />
     </div>
 
@@ -114,11 +116,13 @@ import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Search } from '@element-plus/icons-vue'
 import { userApi, schoolApi } from '@/api'
+import { ROLE, statusOf } from '@/utils/statusMaps'
 
 const list = ref([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = 10
+const loading = ref(false)
 const keyword = ref('')
 const roleFilter = ref('')
 const statusFilter = ref('')
@@ -135,16 +139,19 @@ const newPwd = ref('')
 const resetting = ref(false)
 
 function formatTime(t) { return new Date(t).toLocaleString('zh-CN') }
-function roleText(r) { return { student: '学生', teacher: '教师', admin: '管理员' }[r] }
-function roleType(r) { return { student: 'success', teacher: 'warning', admin: 'danger' }[r] }
+const roleText = (r) => statusOf(ROLE, r).text
+const roleType = (r) => statusOf(ROLE, r).type
 
 async function loadData() {
-  const res = await userApi.list({
-    page: page.value, pageSize,
-    keyword: keyword.value, role: roleFilter.value, status: statusFilter.value
-  })
-  list.value = res.data.list
-  total.value = res.data.total
+  loading.value = true
+  try {
+    const res = await userApi.list({
+      page: page.value, pageSize,
+      keyword: keyword.value, role: roleFilter.value, status: statusFilter.value
+    })
+    list.value = res.data.list
+    total.value = res.data.total
+  } finally { loading.value = false }
 }
 function handlePage(p) { page.value = p; loadData() }
 

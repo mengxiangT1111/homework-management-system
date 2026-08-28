@@ -3,11 +3,13 @@
     <div class="page-title">作业列表</div>
 
     <div class="card-section">
-      <div class="filter-bar">
-        <el-input v-model="keyword" placeholder="搜索作业标题" clearable style="width:240px" @clear="search" @keyup.enter="search">
-          <template #prefix><el-icon><Search /></el-icon></template>
-        </el-input>
-        <el-button type="primary" @click="search">搜索</el-button>
+      <div class="table-toolbar">
+        <div class="toolbar-filters">
+          <el-input v-model="keyword" placeholder="搜索作业标题，回车搜索" clearable style="width:260px" @clear="search" @keyup.enter="search">
+            <template #prefix><el-icon><Search /></el-icon></template>
+          </el-input>
+        </div>
+        <span class="toolbar-meta">共 {{ total }} 个作业</span>
       </div>
 
       <div v-if="list.length === 0" class="empty-box">
@@ -39,7 +41,7 @@
       <el-pagination
         v-if="total > 0" background layout="prev, pager, next, total"
         :total="total" :page-size="pageSize" :current-page="page"
-        style="margin-top:20px; justify-content:center; display:flex"
+        class="table-footer"
         @current-change="handlePage"
       />
     </div>
@@ -55,14 +57,18 @@ const list = ref([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = 10
+const loading = ref(false)
 const keyword = ref('')
 
 function formatTime(t) { return new Date(t).toLocaleString('zh-CN') }
 
 async function loadData() {
-  const res = await assignmentApi.list({ page: page.value, pageSize, keyword: keyword.value })
-  list.value = res.data.list
-  total.value = res.data.total
+  loading.value = true
+  try {
+    const res = await assignmentApi.list({ page: page.value, pageSize, keyword: keyword.value })
+    list.value = res.data.list
+    total.value = res.data.total
+  } finally { loading.value = false }
 }
 
 function handlePage(p) { page.value = p; loadData() }

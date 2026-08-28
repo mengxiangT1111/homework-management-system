@@ -15,7 +15,7 @@
         <el-button type="primary" @click="loadData">搜索</el-button>
       </div>
 
-      <el-table :data="list" stripe>
+      <el-table v-loading="loading" :data="list" stripe>
         <el-table-column label="学校代码" prop="code" width="120" />
         <el-table-column label="学校名称" prop="name" min-width="220" />
         <el-table-column label="用户数" prop="user_count" width="100" align="center" />
@@ -32,7 +32,7 @@
 
       <el-pagination v-if="total > 0" background layout="prev, pager, next, total"
         :total="total" :page-size="pageSize" :current-page="page"
-        style="margin-top:20px; justify-content:center; display:flex"
+        class="table-footer"
         @current-change="handlePage" />
     </div>
 
@@ -64,6 +64,7 @@ const list = ref([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = 20
+const loading = ref(false)
 const keyword = ref('')
 
 const formVisible = ref(false)
@@ -74,9 +75,12 @@ const form = reactive({ name: '', code: '' })
 function formatTime(t) { return new Date(t).toLocaleString('zh-CN') }
 
 async function loadData() {
-  const res = await schoolApi.list({ page: page.value, pageSize, keyword: keyword.value })
-  list.value = res.data.list
-  total.value = res.data.total
+  loading.value = true
+  try {
+    const res = await schoolApi.list({ page: page.value, pageSize, keyword: keyword.value })
+    list.value = res.data.list
+    total.value = res.data.total
+  } finally { loading.value = false }
 }
 function handlePage(p) { page.value = p; loadData() }
 

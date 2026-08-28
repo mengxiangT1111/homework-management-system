@@ -21,7 +21,7 @@
         <el-button type="primary" @click="loadData">搜索</el-button>
       </div>
 
-      <el-table :data="list" stripe>
+      <el-table v-loading="loading" :data="list" stripe>
         <el-table-column label="课程名" prop="name" min-width="150" />
         <el-table-column label="学校" width="150">
           <template #default="{ row }">{{ row.school?.name || '-' }}</template>
@@ -47,7 +47,7 @@
 
       <el-pagination v-if="total > 0" background layout="prev, pager, next, total"
         :total="total" :page-size="pageSize" :current-page="page"
-        style="margin-top:20px; justify-content:center; display:flex"
+        class="table-footer"
         @current-change="handlePage" />
     </div>
 
@@ -97,6 +97,7 @@ const list = ref([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = 10
+const loading = ref(false)
 const keyword = ref('')
 const classFilter = ref('')
 const classes = ref([])
@@ -114,9 +115,12 @@ const saving = ref(false)
 const form = reactive({ name: '', school_id: null, class_id: null, teacher_id: null, semester: '', description: '' })
 
 async function loadData() {
-  const res = await courseApi.list({ page: page.value, pageSize, keyword: keyword.value, class_id: classFilter.value, school_id: schoolFilter.value || undefined })
-  list.value = res.data.list
-  total.value = res.data.total
+  loading.value = true
+  try {
+    const res = await courseApi.list({ page: page.value, pageSize, keyword: keyword.value, class_id: classFilter.value, school_id: schoolFilter.value || undefined })
+    list.value = res.data.list
+    total.value = res.data.total
+  } finally { loading.value = false }
 }
 function handlePage(p) { page.value = p; loadData() }
 

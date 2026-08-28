@@ -18,7 +18,7 @@
         <el-button type="primary" @click="search">搜索</el-button>
       </div>
 
-      <el-table :data="list" stripe>
+      <el-table v-loading="loading" :data="list" stripe>
         <el-table-column label="班级名称" prop="name" min-width="180" />
         <el-table-column label="学校" width="150">
           <template #default="{ row }">{{ row.school?.name || '-' }}</template>
@@ -41,7 +41,7 @@
 
       <el-pagination v-if="total > 0" background layout="prev, pager, next, total"
         :total="total" :page-size="pageSize" :current-page="page"
-        style="margin-top:20px; justify-content:center; display:flex"
+        class="table-footer"
         @current-change="handlePage" />
     </div>
 
@@ -137,6 +137,7 @@ const list = ref([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = 10
+const loading = ref(false)
 const keyword = ref('')
 const teachers = ref([])
 const schools = ref([])
@@ -157,9 +158,12 @@ const selectedStudents = ref([])
 const addingStudents = ref(false)
 
 async function loadData() {
-  const res = await classApi.list({ page: page.value, pageSize, keyword: keyword.value, school_id: schoolFilter.value || undefined })
-  list.value = res.data.list
-  total.value = res.data.total
+  loading.value = true
+  try {
+    const res = await classApi.list({ page: page.value, pageSize, keyword: keyword.value, school_id: schoolFilter.value || undefined })
+    list.value = res.data.list
+    total.value = res.data.total
+  } finally { loading.value = false }
 }
 // 搜索/筛选须回到第 1 页：否则停留在大页码时结果不足一页会显示空白
 function search() { page.value = 1; loadData() }

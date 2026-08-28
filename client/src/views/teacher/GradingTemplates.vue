@@ -9,15 +9,18 @@
 
     <!-- 筛选 -->
     <div class="card-section">
-      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">
-        <el-select v-model="filterSubject" placeholder="科目筛选" clearable style="width:140px" @change="search">
-          <el-option v-for="s in subjects" :key="s" :label="s" :value="s" />
-        </el-select>
-        <el-select v-model="filterStatus" placeholder="状态筛选" clearable style="width:140px" @change="search">
-          <el-option label="草稿" value="draft" />
-          <el-option label="已发布" value="published" />
-          <el-option label="已停用" value="disabled" />
-        </el-select>
+      <div class="table-toolbar">
+        <div class="toolbar-filters">
+          <el-select v-model="filterSubject" placeholder="科目筛选" clearable style="width:140px" @change="search">
+            <el-option v-for="s in subjects" :key="s" :label="s" :value="s" />
+          </el-select>
+          <el-select v-model="filterStatus" placeholder="状态筛选" clearable style="width:140px" @change="search">
+            <el-option label="草稿" value="draft" />
+            <el-option label="已发布" value="published" />
+            <el-option label="已停用" value="disabled" />
+          </el-select>
+        </div>
+        <span class="toolbar-meta">共 {{ total }} 个模板</span>
       </div>
 
       <el-table :data="list" v-loading="loading" stripe>
@@ -35,7 +38,7 @@
         </el-table-column>
         <el-table-column label="状态" width="90" align="center">
           <template #default="{ row }">
-            <el-tag :type="row.status === 'published' ? 'success' : row.status === 'draft' ? 'warning' : 'info'" size="small">
+            <el-tag :type="statusType(row.status)" size="small">
               {{ statusText(row.status) }}
             </el-tag>
           </template>
@@ -61,7 +64,7 @@
       <el-pagination
         v-if="total > pageSize" background layout="prev, pager, next, total"
         :total="total" :page-size="pageSize" :current-page="page"
-        style="margin-top:20px; justify-content:center; display:flex"
+        class="table-footer"
         @current-change="handlePage"
       />
     </div>
@@ -162,6 +165,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { gradingApi } from '@/api'
+import { TEMPLATE_STATUS, statusOf } from '@/utils/statusMaps'
 
 const subjects = ['语文', '数学', '英语', '物理', '化学', '生物', '历史', '地理', '政治', '通用']
 
@@ -194,7 +198,8 @@ const weightSum = computed(() =>
   Math.round(form.dimensions.reduce((s, d) => s + (Number(d.weight) || 0), 0) * 10) / 10
 )
 
-const statusText = (s) => ({ draft: '草稿', published: '已发布', disabled: '已停用' }[s] || s)
+const statusText = (s) => statusOf(TEMPLATE_STATUS, s).text
+const statusType = (s) => statusOf(TEMPLATE_STATUS, s).type
 const formatTime = (t) => new Date(t).toLocaleString('zh-CN')
 
 // 新增档位：默认占位区间（教师可改），低于当前最低档

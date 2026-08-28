@@ -57,6 +57,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import { authApi } from '@/api'
+import { ROLE, statusOf } from '@/utils/statusMaps'
 
 const authStore = useAuthStore()
 
@@ -65,8 +66,8 @@ const pwdForm = reactive({ old_password: '', new_password: '' })
 const saving = ref(false)
 const changingPwd = ref(false)
 
-const roleText = computed(() => ({ student: '学生', teacher: '教师', admin: '管理员' }[authStore.role]))
-const roleTagType = computed(() => ({ student: 'success', teacher: 'warning', admin: 'danger' }[authStore.role]))
+const roleText = computed(() => statusOf(ROLE, authStore.role).text)
+const roleTagType = computed(() => statusOf(ROLE, authStore.role).type)
 
 onMounted(() => {
   const u = authStore.user
