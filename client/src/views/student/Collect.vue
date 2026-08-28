@@ -271,7 +271,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Document, Clock, Plus, Delete, InfoFilled } from '@element-plus/icons-vue'
 import { classApi, courseApi, downloadFile } from '@/api'
 import { uploadFileChunked } from '@/utils/upload'
-import { toPickerValue } from '@/utils/format'
+import { toPickerValue, rateColor } from '@/utils/format'
 
 const positions = ref([])
 const currentClassId = ref(null)
@@ -298,11 +298,6 @@ const sampleDocuments = ref([])
 const activeSampleTab = ref('image')
 
 function formatTime(t) { return new Date(t).toLocaleString('zh-CN') }
-function rateColor(r) {
-  if (r >= 80) return '#52c4a0'
-  if (r >= 50) return '#e6a23c'
-  return '#f56c6c'
-}
 
 async function loadPositions() {
   const res = await classApi.myPositions()

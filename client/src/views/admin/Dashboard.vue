@@ -1,6 +1,7 @@
 <template>
   <div class="page-container">
     <div class="page-title">数据统计概览</div>
+    <div class="page-desc">全校用户、班级与提交数据总览</div>
 
     <!-- 加载失败（全部请求失败才进入错误态，带重试） -->
     <EmptyState v-if="loadError" type="error" description="统计数据加载失败，请检查网络后重试" @retry="loadData" />
@@ -26,36 +27,22 @@
 
     <template v-else>
       <!-- 数据卡片 -->
-      <el-row :gutter="20" style="margin-bottom:20px">
+      <el-row :gutter="16" class="stagger" style="margin-bottom:20px">
         <el-col :xs="12" :md="6">
-          <div class="stat-card">
-            <div class="stat-label">用户总数</div>
-            <div class="stat-value">{{ stats.userCount || 0 }}</div>
-            <div class="stat-sub">学生 {{ stats.studentCount }} · 教师 {{ stats.teacherCount }}</div>
-          </div>
+          <StatCard label="用户总数" :value="stats.userCount || 0" :icon="User" to="/admin/users"
+            :sub="`学生 ${stats.studentCount} · 教师 ${stats.teacherCount}`" />
         </el-col>
         <el-col :xs="12" :md="6">
-          <div class="stat-card">
-            <div class="stat-label">班级数</div>
-            <div class="stat-value">{{ stats.classCount || 0 }}</div>
-            <div class="stat-sub">课程 {{ stats.courseCount }} 门</div>
-          </div>
+          <StatCard label="班级数" :value="stats.classCount || 0" :icon="School" to="/admin/classes"
+            :sub="`课程 ${stats.courseCount} 门`" />
         </el-col>
         <el-col :xs="12" :md="6">
-          <div class="stat-card">
-            <div class="stat-label">作业任务</div>
-            <div class="stat-value">{{ stats.assignmentCount || 0 }}</div>
-            <div class="stat-sub">总提交 {{ stats.submissionCount }} 次</div>
-          </div>
+          <StatCard label="作业任务" :value="stats.assignmentCount || 0" :icon="Document"
+            :sub="`总提交 ${stats.submissionCount} 次`" />
         </el-col>
         <el-col :xs="12" :md="6">
-          <div class="stat-card">
-            <div class="stat-label">整体提交率</div>
-            <div class="stat-value">{{ stats.submitRate || 0 }}%</div>
-            <div class="stat-sub" :class="{ danger: stats.unsubmittedTotal > 0 }">
-              未交 {{ stats.unsubmittedTotal }} 人次
-            </div>
-          </div>
+          <StatCard label="整体提交率" :value="`${stats.submitRate || 0}%`" :icon="DataAnalysis"
+            :sub="stats.unsubmittedTotal > 0 ? `未交 ${stats.unsubmittedTotal} 人次` : '全部已交'" />
         </el-col>
       </el-row>
 
@@ -72,8 +59,9 @@
 <script setup>
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import * as echarts from 'echarts'
-import { TrendCharts } from '@element-plus/icons-vue'
+import { TrendCharts, User, School, Document, DataAnalysis } from '@element-plus/icons-vue'
 import { statsApi } from '@/api'
+import { brandTheme } from '@/utils/chartTheme'
 
 const stats = ref({})
 const rates = ref([])
@@ -102,7 +90,7 @@ function renderChart() {
   if (!chartRef.value || rates.value.length === 0) return
   // 复用单例，避免重复 init 泄漏 echarts 实例
   if (chart) chart.dispose()
-  chart = echarts.init(chartRef.value)
+  chart = echarts.init(chartRef.value, brandTheme())
   const data = rates.value.slice(0, 10)
   chart.setOption({
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
@@ -122,7 +110,7 @@ function renderChart() {
       },
       {
         name: '未交', type: 'bar', stack: 'total',
-        itemStyle: { color: '#f56c6c', borderRadius: [4, 4, 0, 0] },
+        itemStyle: { color: '#f56c6c', borderRadius: [6, 6, 0, 0] },
         data: data.map(d => d.unsubmitted)
       }
     ]

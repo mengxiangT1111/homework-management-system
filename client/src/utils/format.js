@@ -18,3 +18,10 @@ export function toPickerValue(iso) {
   const p = (n) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:00`
 }
+
+// 提交率进度条统一配色：≥80 达标（深薄荷）/ ≥50 偏低（琥珀）/ <50 危险（红）
+export function rateColor(r) {
+  if (r >= 80) return '#3da884'
+  if (r >= 50) return '#e6a23c'
+  return '#f56c6c'
+}

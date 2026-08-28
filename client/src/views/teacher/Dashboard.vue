@@ -1,6 +1,7 @@
 <template>
   <div class="page-container">
     <div class="page-title">教师工作台</div>
+    <div class="page-desc">课程、作业与 AI 批改的工作台</div>
 
     <!-- 加载失败（全部请求失败才进入错误态，带重试） -->
     <EmptyState v-if="loadError" type="error" description="工作台数据加载失败，请检查网络后重试" @retry="loadData" />
@@ -25,30 +26,18 @@
     </template>
 
     <template v-else>
-      <el-row :gutter="20" style="margin-bottom:20px">
+      <el-row :gutter="16" class="stagger" style="margin-bottom:20px">
         <el-col :xs="12" :md="6">
-          <div class="stat-card">
-            <div class="stat-label">我的课程</div>
-            <div class="stat-value">{{ stats.courseCount || 0 }}</div>
-          </div>
+          <StatCard label="我的课程" :value="stats.courseCount || 0" :icon="Reading" to="/teacher/courses" />
         </el-col>
         <el-col :xs="12" :md="6">
-          <div class="stat-card">
-            <div class="stat-label">作业任务</div>
-            <div class="stat-value">{{ stats.assignmentCount || 0 }}</div>
-          </div>
+          <StatCard label="作业任务" :value="stats.assignmentCount || 0" :icon="Document" to="/teacher/assignments" />
         </el-col>
         <el-col :xs="12" :md="6">
-          <div class="stat-card">
-            <div class="stat-label">待批改</div>
-            <div class="stat-value" style="color:var(--warning)">{{ stats.ungradedCount || 0 }}</div>
-          </div>
+          <StatCard label="待批改" :value="stats.ungradedCount || 0" :icon="EditPen" tone="warning" />
         </el-col>
         <el-col :xs="12" :md="6">
-          <div class="stat-card">
-            <div class="stat-label">总提交数</div>
-            <div class="stat-value">{{ stats.submissionCount || 0 }}</div>
-          </div>
+          <StatCard label="总提交数" :value="stats.submissionCount || 0" :icon="DataLine" />
         </el-col>
       </el-row>
 
@@ -78,19 +67,14 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { Plus, TrendCharts } from '@element-plus/icons-vue'
+import { Plus, TrendCharts, Reading, Document, EditPen, DataLine } from '@element-plus/icons-vue'
 import { statsApi } from '@/api'
+import { rateColor } from '@/utils/format'
 
 const stats = ref({})
 const rates = ref([])
 const loading = ref(true)
 const loadError = ref(false)
-
-function rateColor(r) {
-  if (r >= 80) return '#3da884'
-  if (r >= 50) return '#e6a23c'
-  return '#f56c6c'
-}
 
 async function loadData() {
   loading.value = true

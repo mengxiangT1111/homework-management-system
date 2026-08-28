@@ -164,7 +164,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Document, Clock, Plus } from '@element-plus/icons-vue'
 import { courseApi, downloadFile } from '@/api'
-import { toPickerValue } from '@/utils/format'
+import { toPickerValue, rateColor } from '@/utils/format'
 
 const courses = ref([])
 const currentCourseId = ref(null)
@@ -175,11 +175,6 @@ const unsubData = ref(null)
 const reminding = ref(false)
 
 function formatTime(t) { return new Date(t).toLocaleString('zh-CN') }
-function rateColor(r) {
-  if (r >= 80) return '#52c4a0'
-  if (r >= 50) return '#e6a23c'
-  return '#f56c6c'
-}
 
 async function loadCourses() {
   const res = await courseApi.myAssistantships()

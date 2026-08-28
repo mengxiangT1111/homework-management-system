@@ -1,6 +1,7 @@
 <template>
   <div class="page-container">
     <div class="page-title">学生仪表盘</div>
+    <div class="page-desc">掌握你的班级、作业与提交动态</div>
 
     <!-- 加载失败（全部请求失败才进入错误态，带重试） -->
     <EmptyState v-if="loadError" type="error" description="仪表盘数据加载失败，请检查网络后重试" @retry="loadData" />
@@ -26,33 +27,19 @@
 
     <template v-else>
       <!-- 数据卡片 -->
-      <el-row :gutter="20" style="margin-bottom:20px">
+      <el-row :gutter="16" class="stagger" style="margin-bottom:20px">
         <el-col :xs="12" :md="6">
-          <div class="stat-card">
-            <div class="stat-label">我的班级</div>
-            <div
-              class="stat-value stat-value--name"
-              :title="classNames.length ? classNames.join('、') : '尚未加入班级'"
-            >{{ classNames.length ? classNames.join('、') : '—' }}</div>
-          </div>
+          <StatCard label="我的班级" :value="classNames.length ? classNames.join('、') : (stats.classCount || '—')"
+            :hint="classNames.join('、')" :icon="School" to="/student/classes" />
         </el-col>
         <el-col :xs="12" :md="6">
-          <div class="stat-card">
-            <div class="stat-label">在修课程</div>
-            <div class="stat-value">{{ stats.courseCount || 0 }}</div>
-          </div>
+          <StatCard label="在修课程" :value="stats.courseCount || 0" :icon="Reading" />
         </el-col>
         <el-col :xs="12" :md="6">
-          <div class="stat-card">
-            <div class="stat-label">待提交作业</div>
-            <div class="stat-value" style="color:var(--warning)">{{ stats.pendingSubmit || 0 }}</div>
-          </div>
+          <StatCard label="待提交作业" :value="stats.pendingSubmit || 0" :icon="AlarmClock" tone="warning" to="/student/assignments" />
         </el-col>
         <el-col :xs="12" :md="6">
-          <div class="stat-card">
-            <div class="stat-label">已提交作业</div>
-            <div class="stat-value">{{ stats.mySubmissions || 0 }}</div>
-          </div>
+          <StatCard label="已提交作业" :value="stats.mySubmissions || 0" :icon="Finished" to="/student/submissions" />
         </el-col>
       </el-row>
 
@@ -85,7 +72,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { Clock, Tickets } from '@element-plus/icons-vue'
+import { School, Reading, AlarmClock, Finished, Clock, Tickets } from '@element-plus/icons-vue'
 import { statsApi, assignmentApi, classApi } from '@/api'
 
 const stats = ref({})
@@ -124,16 +111,6 @@ onMounted(loadData)
 </script>
 
 <style scoped>
-/* 班级名称卡片：文字替代大数字，超长单行截断并靠 title 提示全名 */
-.stat-card .stat-value.stat-value--name {
-  font-size: 20px;
-  line-height: 1.4;
-  letter-spacing: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: block;
-}
 .todo-item {
   display: flex; justify-content: space-between; align-items: center;
   padding: 14px; border-radius: 8px; background: var(--bg);

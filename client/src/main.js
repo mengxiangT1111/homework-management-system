@@ -29,4 +29,8 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
 // 全局空状态组件（三变体：empty / search / error+重试）
 app.component('EmptyState', EmptyState)
 
+// 全局统计卡（图标徽章 + 语义色调 + 可点击跳转）
+import StatCard from './components/StatCard.vue'
+app.component('StatCard', StatCard)
+
 app.mount('#app')
