@@ -2,7 +2,7 @@
   <div class="page-container">
     <div class="page-title">
       批改模板管理
-      <el-button type="primary" style="float:right" @click="openCreate">
+      <el-button type="primary" style="margin-left:auto" @click="openCreate">
         <el-icon><Plus /></el-icon> 新建模板
       </el-button>
     </div>

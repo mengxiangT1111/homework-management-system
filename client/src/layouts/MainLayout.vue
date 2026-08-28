@@ -21,11 +21,22 @@
         active-text-color="#ffffff"
         @select="onMenuSelect"
       >
-        <el-menu-item v-for="item in menuItems" :key="item.path" :index="item.path">
-          <el-icon><component :is="item.icon" /></el-icon>
-          <template #title>{{ item.title }}</template>
-        </el-menu-item>
+        <el-menu-item-group v-for="group in menuGroups" :key="group.label" :title="group.label">
+          <el-menu-item v-for="item in group.items" :key="item.path" :index="item.path">
+            <el-icon><component :is="item.icon" /></el-icon>
+            <template #title>{{ item.title }}</template>
+          </el-menu-item>
+        </el-menu-item-group>
       </el-menu>
+
+      <!-- 侧栏底部用户卡 -->
+      <div class="sidebar-footer">
+        <el-avatar :size="30" class="sf-avatar">{{ authStore.realName.charAt(0) }}</el-avatar>
+        <div v-show="!collapsed" class="sf-info">
+          <div class="sf-name">{{ authStore.realName }}</div>
+          <div class="sf-role">{{ roleText }}</div>
+        </div>
+      </div>
     </el-aside>
 
     <el-container>
@@ -35,6 +46,7 @@
           <el-icon class="collapse-btn" :class="{ 'mobile-hamburger': true }" @click="toggleMobileMenu">
             <Operation />
           </el-icon>
+          <span v-if="currentPageTitle" class="page-context">{{ currentPageTitle }}</span>
           <span class="welcome">{{ greeting }}，{{ authStore.realName }}</span>
         </div>
         <div class="topbar-right">
@@ -102,45 +114,74 @@ const role = computed(() => authStore.role)
 
 const menuConfig = {
   student: [
-    { path: '/student/dashboard', title: '仪表盘', icon: 'HomeFilled' },
-    { path: '/student/classes', title: '我的班级', icon: 'School' },
-    { path: '/student/assignments', title: '作业列表', icon: 'Document' },
-    { path: '/student/submissions', title: '我的提交', icon: 'UploadFilled' },
-    { path: '/student/collect', title: '作业收集', icon: 'DataLine', leaderOnly: true },
-    { path: '/student/assistant', title: '课代表', icon: 'Medal', assistantOnly: true },
-    { path: '/student/notifications', title: '消息通知', icon: 'Bell' },
-    { path: '/student/profile', title: '个人中心', icon: 'User' }
+    { label: '学习', items: [
+      { path: '/student/dashboard', title: '仪表盘', icon: 'HomeFilled' },
+      { path: '/student/classes', title: '我的班级', icon: 'School' },
+      { path: '/student/assignments', title: '作业列表', icon: 'Document' },
+      { path: '/student/submissions', title: '我的提交', icon: 'UploadFilled' },
+      { path: '/student/notifications', title: '消息通知', icon: 'Bell' }
+    ] },
+    { label: '协作', items: [
+      { path: '/student/collect', title: '作业收集', icon: 'DataLine', leaderOnly: true },
+      { path: '/student/assistant', title: '课代表', icon: 'Medal', assistantOnly: true },
+      { path: '/student/profile', title: '个人中心', icon: 'User' }
+    ] }
   ],
   teacher: [
-    { path: '/teacher/dashboard', title: '仪表盘', icon: 'HomeFilled' },
-    { path: '/teacher/assignments', title: '作业管理', icon: 'Document' },
-    { path: '/teacher/plagiarism', title: '查重中心', icon: 'WarningFilled' },
-    { path: '/teacher/grading/templates', title: '批改模板', icon: 'List' },
-    { path: '/teacher/grading/reviews', title: '批改复核', icon: 'Finished' },
-    { path: '/teacher/courses', title: '我的课程', icon: 'Reading' },
-    { path: '/teacher/notifications', title: '消息通知', icon: 'Bell' },
-    { path: '/teacher/profile', title: '个人中心', icon: 'User' }
+    { label: '教学', items: [
+      { path: '/teacher/dashboard', title: '仪表盘', icon: 'HomeFilled' },
+      { path: '/teacher/assignments', title: '作业管理', icon: 'Document' },
+      { path: '/teacher/courses', title: '我的课程', icon: 'Reading' }
+    ] },
+    { label: 'AI 批改', items: [
+      { path: '/teacher/plagiarism', title: '查重中心', icon: 'WarningFilled' },
+      { path: '/teacher/grading/templates', title: '批改模板', icon: 'List' },
+      { path: '/teacher/grading/reviews', title: '批改复核', icon: 'Finished' }
+    ] },
+    { label: '通用', items: [
+      { path: '/teacher/notifications', title: '消息通知', icon: 'Bell' },
+      { path: '/teacher/profile', title: '个人中心', icon: 'User' }
+    ] }
   ],
   admin: [
-    { path: '/admin/dashboard', title: '数据统计', icon: 'DataAnalysis' },
-    { path: '/admin/classes', title: '班级管理', icon: 'School' },
-    { path: '/admin/schools', title: '学校管理', icon: 'OfficeBuilding' },
-    { path: '/admin/users', title: '用户管理', icon: 'UserFilled' },
-    { path: '/admin/courses', title: '课程管理', icon: 'Reading' },
-    { path: '/admin/cleanup', title: '文件清理', icon: 'Delete' },
-    { path: '/admin/notifications', title: '消息通知', icon: 'Bell' },
-    { path: '/admin/profile', title: '个人中心', icon: 'User' }
+    { label: '数据', items: [
+      { path: '/admin/dashboard', title: '数据统计', icon: 'DataAnalysis' }
+    ] },
+    { label: '管理', items: [
+      { path: '/admin/classes', title: '班级管理', icon: 'School' },
+      { path: '/admin/schools', title: '学校管理', icon: 'OfficeBuilding' },
+      { path: '/admin/users', title: '用户管理', icon: 'UserFilled' },
+      { path: '/admin/courses', title: '课程管理', icon: 'Reading' },
+      { path: '/admin/cleanup', title: '文件清理', icon: 'Delete' }
+    ] },
+    { label: '通用', items: [
+      { path: '/admin/notifications', title: '消息通知', icon: 'Bell' },
+      { path: '/admin/profile', title: '个人中心', icon: 'User' }
+    ] }
   ]
 }
 
-const menuItems = computed(() => {
-  const items = menuConfig[role.value] || []
-  // 班级负责人/课代表专属菜单：非相应身份隐藏
-  return items.filter(item =>
-    (!item.leaderOnly || isClassLeader.value) &&
-    (!item.assistantOnly || isCourseAssistant.value)
-  )
+const menuGroups = computed(() => {
+  return (menuConfig[role.value] || [])
+    .map(group => ({
+      ...group,
+      items: group.items.filter(item =>
+        (!item.leaderOnly || isClassLeader.value) &&
+        (!item.assistantOnly || isCourseAssistant.value)
+      )
+    }))
+    .filter(group => group.items.length > 0)
 })
+
+const currentPageTitle = computed(() => {
+  for (const group of menuGroups.value) {
+    const hit = group.items.find(i => i.path === route.path)
+    if (hit) return hit.title
+  }
+  return ''
+})
+
+const roleText = computed(() => ({ student: '学生', teacher: '教师', admin: '管理员' }[role.value] || ''))
 
 const greeting = computed(() => {
   const h = new Date().getHours()
@@ -210,6 +251,8 @@ onUnmounted(() => {
   background: linear-gradient(180deg, #2d6a5f 0%, #1e4d44 100%);
   transition: width 0.3s;
   overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .logo-area {
@@ -227,10 +270,23 @@ onUnmounted(() => {
 
 .side-menu {
   border: none;
-  padding-top: 10px;
+  padding-top: 6px;
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
+/* 分组标签 */
+.side-menu :deep(.el-menu-item-group__title) {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.42);
+  padding: 14px 20px 4px !important;
+}
+.side-menu.el-menu--collapse :deep(.el-menu-item-group__title) { display: none; }
+
 .side-menu :deep(.el-menu-item) {
+  position: relative;
   border-radius: 8px;
   margin: 4px 10px;
   height: 46px;
@@ -241,9 +297,36 @@ onUnmounted(() => {
   color: #ffffff !important;
 }
 
+/* 激活项左侧指示条（贴侧栏边缘） */
+.side-menu :deep(.el-menu-item.is-active)::before {
+  content: '';
+  position: absolute;
+  left: -10px;
+  top: 7px;
+  bottom: 7px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--brand-300);
+}
+
 .side-menu :deep(.el-menu-item:hover) {
   background: rgba(255,255,255,0.1) !important;
 }
+
+/* 底部用户卡 */
+.sidebar-footer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+.sf-avatar { background: var(--brand-500); color: #fff; font-weight: 600; flex-shrink: 0; }
+.sf-info { min-width: 0; }
+.sf-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sf-role { font-size: 11px; color: rgba(255, 255, 255, 0.55); }
 
 .topbar {
   background: white;
@@ -263,7 +346,9 @@ onUnmounted(() => {
   color: var(--text-light);
 }
 
-.welcome { font-size: 14px; color: var(--text); }
+.page-context { font-size: 14px; font-weight: 600; color: var(--text); }
+
+.welcome { font-size: 13px; color: var(--text-light); }
 
 .topbar-right { display: flex; align-items: center; gap: 20px; }
 

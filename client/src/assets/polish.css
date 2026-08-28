@@ -66,10 +66,56 @@ a:focus-visible,
 .el-card {
   --el-card-border-radius: var(--radius-lg);
   --el-card-border-color: var(--ink-100);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-xs);
 }
 .el-card__header {
   font-weight: 600;
+}
+
+/* ---- 未读徽标脉冲 ---- */
+.el-badge__content.is-fixed {
+  animation: badge-pulse 2.4s ease-out infinite;
+}
+@keyframes badge-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 108, 108, 0.45); }
+  50% { box-shadow: 0 0 0 5px rgba(245, 108, 108, 0); }
+}
+
+/* ---- 列表入场节奏（配合 .stagger 容器） ---- */
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(8px); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .stagger .el-col:nth-child(1) { animation: rise-in 0.4s var(--ease-out) backwards; }
+  .stagger .el-col:nth-child(2) { animation: rise-in 0.4s var(--ease-out) 60ms backwards; }
+  .stagger .el-col:nth-child(3) { animation: rise-in 0.4s var(--ease-out) 120ms backwards; }
+  .stagger .el-col:nth-child(4) { animation: rise-in 0.4s var(--ease-out) 180ms backwards; }
+}
+
+/* ---- 列表页范式：工具栏 / 底部分页 ---- */
+.table-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--sp-4);
+}
+.table-toolbar .toolbar-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  align-items: center;
+}
+.table-toolbar .toolbar-meta {
+  font-size: var(--fs-sm);
+  color: var(--text-light);
+  font-variant-numeric: tabular-nums;
+}
+.table-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: var(--sp-4);
 }
 
 /* ---- 对话框 / 遮罩 ---- */
