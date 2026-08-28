@@ -1,11 +1,13 @@
 <template>
   <div class="auth-container">
-    <div class="auth-box">
-      <div class="auth-logo">
-        <BrandLogo :size="52" class="logo-mark" />
-        <h1>在线作业提交管理系统</h1>
-        <p>欢迎回来，请登录您的账号</p>
-      </div>
+    <AuthBrand />
+    <div class="auth-panel">
+      <div class="auth-box">
+        <div class="auth-logo">
+          <BrandLogo :size="52" class="logo-mark" />
+          <h1>欢迎回来</h1>
+          <p>登录以继续使用作业管理系统</p>
+        </div>
 
       <el-form ref="formRef" :model="form" :rules="rules" size="large" @submit.prevent="handleLogin">
         <el-form-item prop="school_id">
@@ -30,6 +32,7 @@
         <span>还没有账号？</span>
         <router-link to="/register" class="link">立即注册</router-link>
       </div>
+      </div>
     </div>
   </div>
 </template>
@@ -42,6 +45,7 @@ import { User, Lock } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 import { schoolApi } from '@/api'
 import BrandLogo from '@/components/BrandLogo.vue'
+import AuthBrand from '@/components/AuthBrand.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()

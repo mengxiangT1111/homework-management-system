@@ -4,7 +4,8 @@
 
     <el-row :gutter="20">
       <el-col :xs="24" :md="10">
-        <div class="card-section">
+        <div class="card-section profile-card">
+          <div class="profile-band" aria-hidden="true"></div>
           <div class="avatar-area">
             <el-avatar :size="80" class="big-avatar">{{ authStore.realName.charAt(0) }}</el-avatar>
             <h3>{{ authStore.realName }}</h3>
@@ -102,8 +103,14 @@ async function changePwd() {
 </script>
 
 <style scoped>
-.avatar-area { text-align: center; padding: 20px 0; }
-.big-avatar { background: var(--primary); color: white; font-size: 32px; font-weight: 600; margin-bottom: 16px; }
+/* 头像卡：顶部品牌渐变横带 + 悬浮大头像 */
+.profile-card { padding: 0; overflow: hidden; }
+.profile-band { height: 76px; background: linear-gradient(120deg, var(--brand-600), var(--brand-800)); }
+.avatar-area { text-align: center; padding: 0 20px 20px; margin-top: -40px; }
+.big-avatar {
+  background: var(--brand-500); color: white; font-size: 32px; font-weight: 600;
+  margin-bottom: 16px; border: 3px solid #fff; box-shadow: var(--shadow-sm);
+}
 .avatar-area h3 { margin: 8px 0; justify-content: center; }
 .username { color: var(--text-light); font-size: 13px; margin-top: 8px; }
 </style>

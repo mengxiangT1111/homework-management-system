@@ -219,7 +219,7 @@
 /* 13. 修改密码/个人中心适配 */
 @media (max-width: 768px) {
   .avatar-area {
-    padding: 10px 0 !important;
+    padding: 0 16px 10px !important;
   }
   .big-avatar {
     width: 60px !important;

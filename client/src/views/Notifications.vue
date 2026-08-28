@@ -12,7 +12,7 @@
       </div>
 
       <div v-for="item in list" :key="item.id" class="notif-item" :class="{ unread: !item.is_read }">
-        <div class="notif-icon">
+        <div class="notif-icon" :class="`tone-${item.type || 'system'}`">
           <el-icon :size="20">
             <component :is="typeIcon(item.type)" />
           </el-icon>
@@ -106,22 +106,37 @@ onMounted(loadData)
 
 <style scoped>
 .notif-item {
+  position: relative;
   display: flex; align-items: flex-start; gap: 14px;
   padding: 16px; border-bottom: 1px solid var(--border);
   transition: background 0.2s;
 }
 .notif-item:hover { background: var(--bg); }
-.notif-item.unread { background: #f0faf6; }
+.notif-item.unread { background: var(--brand-50); }
 .notif-item.unread .notif-title { font-weight: 600; }
+/* 未读圆点 */
+.notif-item.unread::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 26px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--brand-500);
+}
 .notif-icon {
-  width: 40px; height: 40px; border-radius: 50%;
-  background: var(--primary); color: white;
+  width: 40px; height: 40px; border-radius: 12px;
+  background: var(--brand-50); color: var(--brand-600);
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
 }
+/* 按通知类型着色：截止=琥珀 / 系统=绿灰，其余（成绩/作业）=品牌绿 */
+.notif-icon.tone-deadline { background: var(--el-color-warning-light-9); color: var(--el-color-warning-dark-2); }
+.notif-icon.tone-system { background: var(--ink-100); color: var(--ink-600); }
 .notif-content { flex: 1; min-width: 0; }
 .notif-title { font-size: 15px; color: var(--text); margin-bottom: 4px; }
 .notif-text { font-size: 13px; color: var(--text-light); line-height: 1.6; }
-.notif-time { font-size: 12px; color: #aaa; margin-top: 6px; }
+.notif-time { font-size: 12px; color: var(--ink-600); margin-top: 6px; }
 .notif-actions { flex-shrink: 0; }
 </style>

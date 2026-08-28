@@ -90,12 +90,18 @@
       </el-form>
 
       <!-- 权重合计条 -->
-      <el-alert
-        :type="weightSum === 100 ? 'success' : 'error'" :closable="false" style="margin-bottom:12px"
-        :title="`维度权重合计：${weightSum} / 100 ${weightSum === 100 ? '（正确）' : '（必须等于100才能发布）'}`"
-      />
+      <div class="weight-meter" :class="{ ok: weightSum === 100, bad: weightSum !== 100 }">
+        <div class="wm-track">
+          <div class="wm-fill" :style="{ width: Math.min(100, weightSum) + '%' }"></div>
+          <div v-if="weightSum < 100" class="wm-rest" :style="{ width: (100 - weightSum) + '%' }"></div>
+        </div>
+        <span class="wm-text">
+          权重合计 <strong>{{ weightSum }}</strong> / 100{{ weightSum === 100 ? '' : '（必须等于 100 才能发布）' }}
+        </span>
+      </div>
 
       <!-- 维度卡片 -->
+      <div class="editor-hint">评分维度（AI 按各维度权重与 Rubric 档位评分）</div>
       <div style="max-height:52vh;overflow-y:auto;padding-right:6px">
         <el-card v-for="(dim, i) in form.dimensions" :key="i" shadow="never" style="margin-bottom:12px">
           <template #header>
@@ -344,3 +350,20 @@ async function toggle(row) {
 
 onMounted(loadList)
 </script>
+
+<style scoped>
+/* 权重合计条：等于 100 转绿，不足部分以警示色补齐展示 */
+.weight-meter { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.wm-track {
+  flex: 1; height: 8px; border-radius: 999px; overflow: hidden;
+  display: flex; background: var(--ink-100);
+}
+.wm-fill { background: var(--color-danger); transition: width var(--dur-base) var(--ease-out); }
+.weight-meter.ok .wm-fill { background: var(--color-success); }
+.wm-rest { background: var(--el-color-danger-light-7); }
+.wm-text { font-size: 13px; color: var(--text-light); white-space: nowrap; }
+.wm-text strong { color: var(--ink-800); font-variant-numeric: tabular-nums; }
+.weight-meter.ok .wm-text strong { color: var(--color-success); }
+.weight-meter.bad .wm-text strong { color: var(--color-danger); }
+.editor-hint { font-size: 13px; font-weight: 600; color: var(--ink-700); margin-bottom: 10px; }
+</style>
