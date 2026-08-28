@@ -1,6 +1,14 @@
 // AI 批改配置（全部环境变量，禁止硬编码）
+
+// 兼容只配了 base URL 的写法：未带 chat/completions 路径时按 OpenAI 兼容约定自动补全
+function normalizeEndpoint(url) {
+  if (!url) return url;
+  const clean = String(url).replace(/\/+$/, '');
+  return /\/chat\/completions$/.test(clean) ? clean : `${clean}/v1/chat/completions`;
+}
+
 const config = {
-  apiUrl: process.env.AI_API_URL || 'https://your-new-api.com/v1/chat/completions',
+  apiUrl: normalizeEndpoint(process.env.AI_API_URL || 'https://your-new-api.com/v1/chat/completions'),
   apiKey: process.env.AI_API_KEY || 'sk-your-api-key',
   model: process.env.AI_MODEL || 'gpt-4o',
   // 备用模型（主模型熔断期间降级使用），留空=不降级
