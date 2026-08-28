@@ -234,6 +234,20 @@
         将按所选评分模板创建异步批改任务（不阻塞页面），AI 逐份批改后自动保存评分；低置信度结果会进入"批改复核"队列待人工确认。
       </el-alert>
 
+      <!-- 批改范围：待批改/已批改统计 + 是否重新批改 -->
+      <div class="batch-scope">
+        <span>
+          已提交 <strong>{{ batchTotalSubmitted }}</strong> 份：待批改
+          <strong>{{ batchPendingCount }}</strong> 份、已批改
+          <strong>{{ batchGradedCount }}</strong> 份
+          <span v-if="batchGradedCount > 0" class="scope-hint">（"提交即通过"的作业提交后直接计为已批改）</span>
+        </span>
+        <el-checkbox v-model="batchAIForm.force">包含已批改的提交（覆盖原分数重新批改）</el-checkbox>
+      </div>
+      <el-alert v-if="batchTotalSubmitted === 0" type="warning" :closable="false" style="margin-bottom:16px">
+        还没有学生提交，无法批量批改
+      </el-alert>
+
       <el-card shadow="never" class="ai-param-card">
         <template #header>
           <span class="ai-card-title"><el-icon><Tickets /></el-icon>批改参数（所有学生共用）</span>
@@ -306,7 +320,8 @@
 
       <template #footer>
         <el-button @click="batchAIVisible = false">关闭</el-button>
-        <el-button type="danger" :loading="batchGrading" @click="doBatchAIGrade" :disabled="!batchAIForm.template_id || !batchAIForm.reference_answer">
+        <el-button type="danger" :loading="batchGrading" @click="doBatchAIGrade"
+          :disabled="!batchAIForm.template_id || !batchAIForm.reference_answer || batchTotalSubmitted === 0 || (batchPendingCount === 0 && !batchAIForm.force)">
           <el-icon><MagicStick /></el-icon> 开始一键批改
         </el-button>
       </template>
@@ -357,6 +372,17 @@ const classInfo = computed(() => {
   if (!a) return ''
   return [a.course_name, a.class_name].filter(Boolean).join(' · ')
 })
+
+// 批改范围统计（与后端批量任务口径一致：submitted=待批改，graded=已批改）
+const batchTotalSubmitted = computed(() =>
+  (data.value?.students || []).filter(s => s.submitted).length
+)
+const batchPendingCount = computed(() =>
+  (data.value?.students || []).filter(s => s.submitted && s.submission && s.submission.status === 'submitted').length
+)
+const batchGradedCount = computed(() =>
+  (data.value?.students || []).filter(s => s.submitted && s.submission && s.submission.status === 'graded').length
+)
 
 function formatTime(t) { return new Date(t).toLocaleString('zh-CN') }
 
@@ -511,7 +537,9 @@ const batchAIForm = reactive({
   template_id: null,
   mode: 'balanced',
   grading_criteria: '',
-  reference_answer: ''
+  reference_answer: '',
+  // 包含已批改的提交（覆盖原分数重新批改），对应后端 force
+  force: false
 })
 const batchProgress = ref(0)
 const batchProgressInfo = ref('')
@@ -569,6 +597,11 @@ async function handleBatchRefUpload(file) {
 async function doBatchAIGrade() {
   if (!batchAIForm.template_id) { ElMessage.warning('请选择评分模板'); return }
   if (!batchAIForm.reference_answer) { ElMessage.warning('请填写或上传参考答案'); return }
+  if (batchTotalSubmitted.value === 0) { ElMessage.warning('还没有学生提交'); return }
+  if (batchPendingCount.value === 0 && !batchAIForm.force) {
+    ElMessage.warning('没有待批改的提交；如需重新批改已批改的提交，请勾选"包含已批改的提交"')
+    return
+  }
   batchGrading.value = true
   batchProgress.value = 5
   batchResult.value = null
@@ -577,6 +610,7 @@ async function doBatchAIGrade() {
     const res = await gradingApi.batchTask({
       assignment_id: route.params.id,
       template_id: batchAIForm.template_id,
+      force: batchAIForm.force === true,
       reference_answer: batchAIForm.reference_answer,
       grading_criteria: batchAIForm.grading_criteria,
       mode: batchAIForm.mode
@@ -645,4 +679,20 @@ onUnmounted(stopBatchPolling)
 .ai-section-title { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 14px; color: var(--text); margin-bottom: 6px; }
 .ai-section-title .el-icon { color: var(--brand-600); }
 .ai-section-content { font-size: 14px; line-height: 1.8; color: var(--text); white-space: pre-wrap; background: white; padding: 10px; border-radius: 6px; }
+.batch-scope {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  border: 1px solid var(--ink-100);
+  border-radius: var(--radius-md);
+  background: var(--ink-50);
+  font-size: 13px;
+  color: var(--text-light);
+}
+.batch-scope strong { color: var(--ink-800); font-variant-numeric: tabular-nums; }
+.batch-scope .scope-hint { color: var(--ink-500); }
 </style>
