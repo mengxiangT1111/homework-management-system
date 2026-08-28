@@ -2,9 +2,12 @@ const config = require('../config/ai');
 const mammoth = require('mammoth');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const { safeParseAIResponse, validateAIResult, buildSystemPrompt, buildUserMessage } = require('../utils/aiParser');
 const { success, fail } = require('../utils/response');
 const { Submission, SubmissionFile, User, Assignment, Course } = require('../models');
+const { isCOSPath, extractCOSKey } = require('../utils/fileStorage').helpers;
+const { downloadFromCOS } = require('../config/cos');
 
 // 调用 AI API（带超时和重试）
 async function callAIAPI(requestBody) {
@@ -67,21 +70,44 @@ async function callAIWithRetry(requestBody, maxRetries = config.maxRetries) {
  */
 exports.aiGrade = async (req, res, next) => {
   try {
-    const { grading_criteria, reference_answer, student_answer } = req.body;
+    const { grading_criteria, reference_answer, student_answer, submission_id } = req.body;
     const full_score = Number(req.body.full_score);
 
-    if (!full_score || !reference_answer || !student_answer) {
-      return fail(res, '缺少必要参数：满分分值、参考答案、学生作答不能为空', 422);
+    if (!full_score || !reference_answer) {
+      return fail(res, '缺少必要参数：满分分值、参考答案不能为空', 422);
     }
     if (!Number.isFinite(full_score) || full_score < 1 || full_score > 100) {
       return fail(res, '满分分值需为 1-100 之间的数字', 422);
+    }
+
+    // 学生作答：未手动填写时从提交文件自动提取（Word/Txt，兼容 COS 存储）
+    let studentText = String(student_answer || '').trim();
+    if (!studentText && submission_id) {
+      const submission = await Submission.findByPk(Number(submission_id), {
+        include: [
+          { model: SubmissionFile, as: 'files' },
+          { model: Assignment, as: 'assignment', attributes: ['id', 'teacher_id'] }
+        ]
+      });
+      if (!submission) return fail(res, '提交记录不存在', 404);
+      if (req.user.role === 'teacher' &&
+          submission.assignment && submission.assignment.teacher_id !== req.user.id) {
+        return fail(res, '只能批改自己作业的学生提交', 403);
+      }
+      studentText = await extractSubmissionText(submission);
+      if (studentText.trim()) {
+        console.log(`[AI 批改] 学生作答已从提交文件自动提取（${studentText.length} 字）`);
+      }
+    }
+    if (!studentText) {
+      return fail(res, '学生作答为空：提交文件中无可提取的文本（支持 Word/Txt，图片/PDF 请手动粘贴），或未关联提交记录', 422);
     }
 
     const requestBody = {
       model: config.model,
       messages: [
         { role: 'system', content: buildSystemPrompt() },
-        { role: 'user', content: buildUserMessage(full_score, grading_criteria, reference_answer, student_answer) }
+        { role: 'user', content: buildUserMessage(full_score, grading_criteria, reference_answer, studentText) }
       ],
       temperature: 0.1,
       max_tokens: 2048,
@@ -119,22 +145,42 @@ async function extractTextFromWord(filePath) {
   return result.value;
 }
 
+// 读取单个提交文件的文本（本地与 COS 通吃；COS 先下载到临时文件，用后即删）
+async function readSubmissionFileText(file) {
+  const ext = path.extname(file.original_name || file.file_path).toLowerCase();
+  let filePath = file.file_path;
+  let tmp = null;
+  try {
+    if (isCOSPath(filePath)) {
+      tmp = path.join(os.tmpdir(), `ai-extract-${Date.now()}-${Math.random().toString(36).slice(2)}${ext || ''}`);
+      await downloadFromCOS(extractCOSKey(filePath), tmp);
+      filePath = tmp;
+    } else {
+      filePath = path.join(__dirname, '../../', filePath);
+      if (!fs.existsSync(filePath)) return '';
+    }
+    if (ext === '.txt') {
+      return fs.readFileSync(filePath, 'utf-8');
+    }
+    if (ext === '.docx' || ext === '.doc') {
+      try {
+        const result = await mammoth.extractRawText({ path: filePath });
+        return result.value || '';
+      } catch (e) { return ''; }
+    }
+    // 其他类型（图片/PDF 等）暂不支持文本提取
+    return '';
+  } finally {
+    if (tmp) fs.promises.unlink(tmp).catch(() => {});
+  }
+}
+
 // 从提交文件中提取文本内容
 async function extractSubmissionText(submission) {
   if (!submission || !submission.files || submission.files.length === 0) return '';
   for (const file of submission.files) {
-    const ext = path.extname(file.original_name).toLowerCase();
-    const absPath = path.join(__dirname, '../../', file.file_path);
-    if (!fs.existsSync(absPath)) continue;
-    if (ext === '.txt') {
-      return fs.readFileSync(absPath, 'utf-8');
-    }
-    if (ext === '.docx' || ext === '.doc') {
-      try {
-        const result = await mammoth.extractRawText({ path: absPath });
-        if (result.value.trim()) return result.value;
-      } catch (e) { continue; }
-    }
+    const text = await readSubmissionFileText(file);
+    if (text.trim()) return text;
   }
   return '';
 }

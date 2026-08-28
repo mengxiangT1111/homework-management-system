@@ -485,21 +485,30 @@ function openAIGrade(row) {
   aiCurrent.value = row
   aiForm.full_score = 100
   aiForm.grading_criteria = ''
-  aiForm.reference_answer = ''
+  // 复用批量批改弹窗中已填写/上传提取过的参考答案，避免重复劳动
+  aiForm.reference_answer = batchAIForm.reference_answer || ''
   aiForm.student_answer = ''
   aiResult.value = null
   aiVisible.value = true
 }
 
 async function doAIGrade() {
-  if (!aiForm.reference_answer || !aiForm.student_answer) {
-    ElMessage.warning('请填写参考答案和学生作答')
+  if (!aiForm.reference_answer) {
+    ElMessage.warning('请填写参考答案（可粘贴文本或上传 Word 提取）')
+    return
+  }
+  // 学生作答留空时，后端从该生提交文件自动提取（submission_id）
+  if (!aiForm.student_answer && !aiCurrent.value?.submission?.id) {
+    ElMessage.warning('请填写学生作答（该生暂无提交文件可自动提取）')
     return
   }
   aiGrading.value = true
   aiResult.value = null
   try {
-    const res = await aiApi.grade(aiForm)
+    const res = await aiApi.grade({
+      ...aiForm,
+      submission_id: aiCurrent.value?.submission?.id || undefined
+    })
     aiResult.value = res.data
     ElMessage.success('AI 批改完成')
   } catch (e) {
