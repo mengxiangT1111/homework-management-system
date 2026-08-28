@@ -31,7 +31,7 @@
 
       <!-- 侧栏底部用户卡 -->
       <div class="sidebar-footer">
-        <el-avatar :size="30" class="sf-avatar">{{ authStore.realName.charAt(0) }}</el-avatar>
+        <span class="sf-avatar">{{ authStore.realName.charAt(0) }}</span>
         <div v-show="!collapsed" class="sf-info">
           <div class="sf-name">{{ authStore.realName }}</div>
           <div class="sf-role">{{ roleText }}</div>
@@ -278,10 +278,11 @@ onUnmounted(() => {
 
 /* 分组标签 */
 .side-menu :deep(.el-menu-item-group__title) {
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  color: rgba(255, 255, 255, 0.42);
-  padding: 14px 20px 4px !important;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.7);
+  padding: 14px 20px 6px !important;
 }
 .side-menu.el-menu--collapse :deep(.el-menu-item-group__title) { display: none; }
 
@@ -323,10 +324,23 @@ onUnmounted(() => {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   color: #fff;
 }
-.sf-avatar { background: var(--brand-500); color: #fff; font-weight: 600; flex-shrink: 0; }
+.sf-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--brand-500);
+  color: #fff;
+  font-weight: 600;
+  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  user-select: none;
+}
 .sf-info { min-width: 0; }
 .sf-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sf-role { font-size: 11px; color: rgba(255, 255, 255, 0.55); }
+.sf-role { font-size: 11px; color: rgba(255, 255, 255, 0.65); }
 
 .topbar {
   background: white;
