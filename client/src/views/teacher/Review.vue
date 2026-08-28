@@ -591,6 +591,20 @@ function stopBatchPolling() {
   batchGrading.value = false
 }
 
+// 单份批改弹窗：上传 Word 参考答案并提取文本
+// （此前模板引用了 handleRefUpload 但函数从未定义，选文件后静默无响应）
+async function handleRefUpload(file) {
+  const formData = new FormData()
+  formData.append('file', file.raw)
+  try {
+    const res = await aiApi.uploadReference(formData)
+    aiForm.reference_answer = res.data.text
+    ElMessage.success('Word 文档解析成功，已填入参考答案')
+  } catch (e) {
+    ElMessage.error('Word 解析失败：' + (e.response?.data?.message || e.message || '格式错误'))
+  }
+}
+
 async function handleBatchRefUpload(file) {
   const formData = new FormData()
   formData.append('file', file.raw)
