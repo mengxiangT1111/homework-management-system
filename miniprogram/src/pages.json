@@ -1,0 +1,148 @@
+{
+  "easycom": {
+    "autoscan": true,
+    "custom": {
+      "^uni-(.*)": "@dcloudio/uni-ui/lib/uni-$1/uni-$1.vue"
+    }
+  },
+  "pages": [
+    {
+      "path": "pages/login/login",
+      "style": {
+        "navigationBarTitleText": "信衡",
+        "navigationBarBackgroundColor": "#0d4a37",
+        "navigationBarTextStyle": "white"
+      }
+    },
+    {
+      "path": "pages/register/register",
+      "style": {
+        "navigationBarTitleText": "注册 · 信衡",
+        "navigationBarBackgroundColor": "#0d4a37",
+        "navigationBarTextStyle": "white"
+      }
+    },
+    {
+      "path": "pages/index/index",
+      "style": {
+        "navigationBarTitleText": "首页"
+      }
+    },
+    {
+      "path": "pages/assignments/list",
+      "style": {
+        "navigationBarTitleText": "作业",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/assignments/detail",
+      "style": {
+        "navigationBarTitleText": "作业详情"
+      }
+    },
+    {
+      "path": "pages/assignments/submit",
+      "style": {
+        "navigationBarTitleText": "提交作业"
+      }
+    },
+    {
+      "path": "pages/collect/collect",
+      "style": {
+        "navigationBarTitleText": "作业收集",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/submissions/my",
+      "style": {
+        "navigationBarTitleText": "提交记录",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/teacher/edit-assignment",
+      "style": {
+        "navigationBarTitleText": "发布作业"
+      }
+    },
+    {
+      "path": "pages/teacher/review",
+      "style": {
+        "navigationBarTitleText": "批改"
+      }
+    },
+    {
+      "path": "pages/teacher/review-queue",
+      "style": {
+        "navigationBarTitleText": "AI 复核队列",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/notifications/notifications",
+      "style": {
+        "navigationBarTitleText": "消息",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/mine/mine",
+      "style": {
+        "navigationBarTitleText": "我的"
+      }
+    },
+    {
+      "path": "pages/mine/password",
+      "style": {
+        "navigationBarTitleText": "修改密码"
+      }
+    },
+    {
+      "path": "pages/mine/classes",
+      "style": {
+        "navigationBarTitleText": "我的班级"
+      }
+    }
+  ],
+  "tabBar": {
+    "color": "#9aa8a1",
+    "selectedColor": "#2f8065",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "white",
+    "list": [
+      {
+        "pagePath": "pages/index/index",
+        "text": "首页",
+        "iconPath": "static/tab/home.png",
+        "selectedIconPath": "static/tab/home-active.png"
+      },
+      {
+        "pagePath": "pages/assignments/list",
+        "text": "作业",
+        "iconPath": "static/tab/task.png",
+        "selectedIconPath": "static/tab/task-active.png"
+      },
+      {
+        "pagePath": "pages/notifications/notifications",
+        "text": "消息",
+        "iconPath": "static/tab/bell.png",
+        "selectedIconPath": "static/tab/bell-active.png"
+      },
+      {
+        "pagePath": "pages/mine/mine",
+        "text": "我的",
+        "iconPath": "static/tab/me.png",
+        "selectedIconPath": "static/tab/me-active.png"
+      }
+    ]
+  },
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "信衡",
+    "navigationBarBackgroundColor": "#f4f6f5",
+    "backgroundColor": "#f4f6f5",
+    "onReachBottomDistance": 100
+  }
+}
