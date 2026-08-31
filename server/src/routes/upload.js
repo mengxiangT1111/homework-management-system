@@ -13,5 +13,7 @@ router.post('/chunk', uploadController.uploadChunk);
 router.post('/merge', uploadController.mergeChunks);
 // 普通小文件直传
 router.post('/simple', uploadController.simpleUpload);
+// 小程序端单文件直传（上限 100MB）
+router.post('/single', uploadController.singleUpload);
 
 module.exports = router;

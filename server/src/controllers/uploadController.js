@@ -13,6 +13,14 @@ const UPLOAD_DIR = path.join(__dirname, '../../', process.env.UPLOAD_DIR || 'upl
 const CHUNK_DIR = path.join(UPLOAD_DIR, 'chunks');
 const MERGED_DIR = path.join(UPLOAD_DIR, 'merged');
 
+// multer/busboy 按 latin1 解码 multipart 文件名，中文会变成 mojibake；
+// 重新按 utf8 解读一次。纯 ASCII 名往返不变；含无法还原字节时保持原值。
+function fixMojibakeName(name) {
+  if (!name) return name;
+  const fixed = Buffer.from(name, 'latin1').toString('utf8');
+  return fixed.includes('\uFFFD') ? name : fixed;
+}
+
 // 危险扩展名黑名单（禁止上传）
 const DANGEROUS_EXTS = ['.html', '.htm', '.svg', '.js', '.exe', '.bat', '.cmd', '.sh', '.php', '.asp', '.aspx', '.jsp', '.war'];
 
@@ -326,20 +334,99 @@ exports.simpleUpload = [
     try {
       if (!req.file) return fail(res, '未接收到文件', 422);
       
+      const originalName = fixMojibakeName(req.file.originalname);
       // 校验文件扩展名安全性
-      if (!isExtSafe(req.file.originalname)) {
+      if (!isExtSafe(originalName)) {
         // 删除已上传的文件（Windows 下可能被占用，删除失败不阻断响应）
         fs.promises.unlink(req.file.path).catch(() => {});
         return fail(res, `不支持的文件格式，禁止上传可执行或脚本文件`, 422);
       }
-      
-      const relativePath = req.file.path.replace(/\\/g, '/').replace(/^.*uploads/, 'uploads');
+
+      // 存库路径与 mergeChunks 同规则：UPLOAD_DIR 前缀 + 年月子目录 + 文件名。
+      // 不能用正则从绝对路径里截 "uploads"（贪婪匹配遇多级 uploads 目录会截错，
+      // 自定义 UPLOAD_DIR 目录名时正则不匹配会把服务器绝对路径存进数据库）
+      const finalName = path.basename(req.file.path);
+      const monthDir = path.basename(path.dirname(req.file.path));
+      const relativePath = path.join(process.env.UPLOAD_DIR || 'uploads', monthDir, finalName).replace(/\\/g, '/');
       return success(res, {
-        original_name: req.file.originalname,
+        original_name: originalName,
         file_path: relativePath,
         file_size: req.file.size,
         mime_type: req.file.mimetype,
         ext: path.extname(req.file.originalname).replace('.', '')
+      }, '上传成功');
+    } catch (err) {
+      next(err);
+    }
+  }
+];
+
+// 小程序端单文件直传（uni.uploadFile 一次传完整文件，替代 Web 端分片链路）。
+// 落盘/COS 降级规则与 mergeChunks 一致，返回结构与 merge 一致，
+// 供小程序提交接口直接组装 files 数组（file_hash 恒为 null，小程序不做全量 MD5）。
+const mpSingleStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const now = new Date();
+    const monthDir = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const dir = path.join(UPLOAD_DIR, monthDir);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname || '');
+    cb(null, `${Date.now()}_${Math.random().toString(36).slice(2, 10)}${ext}`);
+  }
+});
+
+const mpSingleUpload = multer({
+  storage: mpSingleStorage,
+  limits: { fileSize: 100 * 1024 * 1024 }
+});
+
+exports.singleUpload = [
+  mpSingleUpload.single('file'),
+  async (req, res, next) => {
+    try {
+      if (!req.file) return fail(res, '未接收到文件', 422);
+
+      // 真实文件名优先取 formData.filename（chooseMedia 的 originalname 常是临时路径名）；
+      // multer 按 latin1 解码 multipart 文件名会乱码，统一 fixMojibakeName。
+      const rawName = fixMojibakeName(req.body.filename || req.file.originalname) || 'unnamed';
+      const originalName = path.basename(String(rawName)).replace(/[\\/:*?"<>|]/g, '_').trim().slice(0, 255) || 'unnamed';
+
+      let ext = path.extname(originalName).toLowerCase();
+      if (!ext) ext = path.extname(req.file.originalname || '').toLowerCase();
+      if (!ext || DANGEROUS_EXTS.includes(ext)) {
+        fs.promises.unlink(req.file.path).catch(() => {});
+        return fail(res, ext ? `不支持的文件格式：${ext}，禁止上传可执行或脚本文件` : '无法识别文件扩展名，禁止上传', 422);
+      }
+
+      const finalName = path.basename(req.file.path);
+      const monthDir = path.basename(path.dirname(req.file.path));
+      let relativePath;
+
+      if (isCOSConfigured) {
+        const cosKey = `homeworks/${monthDir}/${finalName}`;
+        try {
+          await uploadToCOS(req.file.path, cosKey);
+          relativePath = `cos://${cosKey}`;
+          // COS 已接管存储，本地临时副本清理（删除失败不阻断响应）
+          fs.promises.unlink(req.file.path).catch(() => {});
+        } catch (cosErr) {
+          console.error('[COS 上传失败，降级本地存储]', cosErr.message);
+          relativePath = path.join(process.env.UPLOAD_DIR || 'uploads', monthDir, finalName).replace(/\\/g, '/');
+        }
+      } else {
+        relativePath = path.join(process.env.UPLOAD_DIR || 'uploads', monthDir, finalName).replace(/\\/g, '/');
+      }
+
+      return success(res, {
+        original_name: originalName,
+        file_path: relativePath,
+        file_size: req.file.size,
+        mime_type: String(req.file.mimetype || 'application/octet-stream').slice(0, 100),
+        file_hash: null,
+        ext: ext.replace('.', '')
       }, '上传成功');
     } catch (err) {
       next(err);
