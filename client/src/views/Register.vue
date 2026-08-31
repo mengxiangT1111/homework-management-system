@@ -4,9 +4,9 @@
     <div class="auth-panel">
       <div class="auth-box">
         <div class="auth-logo">
-          <BrandLogo :size="52" class="logo-mark" />
+          <div class="logo-halo"><BrandLogo :size="62" /></div>
           <h1>注册新账号</h1>
-          <p>加入校园作业管理系统</p>
+          <p>创建你的信衡账号</p>
         </div>
 
       <el-form ref="formRef" :model="form" :rules="rules" size="large" @submit.prevent="handleRegister">
@@ -37,7 +37,7 @@
           <el-input v-model="form.email" placeholder="邮箱（选填）" :prefix-icon="Message" />
         </el-form-item>
 
-        <el-button type="primary" size="large" :loading="loading" style="width:100%" @click="handleRegister">
+        <el-button type="primary" size="large" class="submit-btn" :loading="loading" @click="handleRegister">
           注 册
         </el-button>
       </el-form>
@@ -46,6 +46,8 @@
         <span>已有账号？</span>
         <router-link to="/login" class="link">返回登录</router-link>
       </div>
+
+      <p class="auth-copyright">信衡 XINHENG · 让每一分都可信</p>
       </div>
     </div>
   </div>
@@ -130,14 +132,8 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.auth-footer {
-  text-align: center; margin-top: 20px;
-  font-size: 14px; color: var(--text-light);
-}
-.logo-mark { display: block; margin: 0 auto; }
+/* 表单控件、按钮、页脚样式统一在 style.css 的认证页公共段维护 */
 .role-group { display: flex; width: 100%; }
 .role-group .el-radio-button { flex: 1; }
 .role-group .el-radio-button :deep(.el-radio-button__inner) { width: 100%; }
-.link { color: var(--brand-700); margin-left: 4px; }
-.link:hover { text-decoration: underline; }
 </style>

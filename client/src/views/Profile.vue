@@ -44,7 +44,7 @@
               <el-input v-model="pwdForm.new_password" type="password" show-password />
             </el-form-item>
             <el-form-item>
-              <el-button type="warning" :loading="changingPwd" @click="changePwd">修改密码</el-button>
+              <el-button :loading="changingPwd" @click="changePwd">修改密码</el-button>
             </el-form-item>
           </el-form>
         </div>

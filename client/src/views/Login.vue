@@ -4,9 +4,9 @@
     <div class="auth-panel">
       <div class="auth-box">
         <div class="auth-logo">
-          <BrandLogo :size="52" class="logo-mark" />
+          <div class="logo-halo"><BrandLogo :size="62" /></div>
           <h1>欢迎回来</h1>
-          <p>登录以继续使用作业管理系统</p>
+          <p>登录以继续使用信衡</p>
         </div>
 
       <el-form ref="formRef" :model="form" :rules="rules" size="large" @submit.prevent="handleLogin">
@@ -23,7 +23,7 @@
             @keyup.enter="handleLogin" />
         </el-form-item>
 
-        <el-button type="primary" size="large" :loading="loading" style="width:100%" @click="handleLogin">
+        <el-button type="primary" size="large" class="submit-btn" :loading="loading" @click="handleLogin">
           登 录
         </el-button>
       </el-form>
@@ -32,6 +32,8 @@
         <span>还没有账号？</span>
         <router-link to="/register" class="link">立即注册</router-link>
       </div>
+
+      <p class="auth-copyright">信衡 XINHENG · 让每一分都可信</p>
       </div>
     </div>
   </div>
@@ -84,13 +86,5 @@ async function handleLogin() {
 </script>
 
 <style scoped>
-.auth-footer {
-  text-align: center;
-  margin: 20px 0 10px;
-  font-size: 14px;
-  color: var(--text-light);
-}
-.logo-mark { display: block; margin: 0 auto; }
-.link { color: var(--brand-700); margin-left: 4px; }
-.link:hover { text-decoration: underline; }
+/* 表单控件、按钮、页脚样式统一在 style.css 的认证页公共段维护 */
 </style>

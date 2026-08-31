@@ -6,8 +6,8 @@
     <!-- 侧边栏 -->
     <el-aside :width="collapsed ? '64px' : '220px'" class="sidebar" :class="{ 'is-mobile-open': mobileMenuOpen }">
       <div class="logo-area">
-        <BrandLogo :size="28" />
-        <span v-show="!collapsed" class="logo-text">作业管理系统</span>
+        <BrandLogo :size="30" />
+        <span v-show="!collapsed" class="logo-text">信衡</span>
         <!-- 手机端关闭按钮 -->
         <el-icon class="mobile-close" v-if="mobileMenuOpen" @click="toggleMobileMenu"><Close /></el-icon>
       </div>
@@ -173,12 +173,22 @@ const menuGroups = computed(() => {
     .filter(group => group.items.length > 0)
 })
 
+// 不在菜单中的路由（发布/批改/提交等详情页）也能在顶栏显示页面名
+const FALLBACK_TITLES = [
+  { match: /^\/teacher\/assignments\/create$/, title: '发布新作业' },
+  { match: /^\/teacher\/assignments\/\d+\/review$/, title: '作业批改' },
+  { match: /^\/student\/assignments\/\d+$/, title: '提交作业' },
+  { match: /^\/student\/collect$/, title: '作业收集' },
+  { match: /^\/student\/assistant$/, title: '课代表' }
+]
+
 const currentPageTitle = computed(() => {
   for (const group of menuGroups.value) {
     const hit = group.items.find(i => i.path === route.path)
     if (hit) return hit.title
   }
-  return ''
+  const fb = FALLBACK_TITLES.find(f => f.match.test(route.path))
+  return fb ? fb.title : ''
 })
 
 const roleText = computed(() => ({ student: '学生', teacher: '教师', admin: '管理员' }[role.value] || ''))
@@ -266,7 +276,7 @@ onUnmounted(() => {
 }
 
 .logo-icon { font-size: 24px; }
-.logo-text { font-size: 15px; font-weight: 600; }
+.logo-text { font-size: 17px; font-weight: 700; letter-spacing: 0.14em; }
 
 .side-menu {
   border: none;

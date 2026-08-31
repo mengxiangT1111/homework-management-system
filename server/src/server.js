@@ -43,7 +43,7 @@ async function start() {
 
     app.listen(PORT, () => {
       console.log(`\n========================================`);
-      console.log(`  在线作业提交管理系统 - 后端服务`);
+      console.log(`  信衡 XINHENG · 校园作业与 AI 批改平台 - 后端服务`);
       console.log(`  服务地址: http://localhost:${PORT}`);
       console.log(`  健康检查: http://localhost:${PORT}/api/health`);
       console.log(`  运行模式: ${isProduction ? '生产环境' : '开发环境'}`);

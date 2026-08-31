@@ -10,7 +10,7 @@
     <!-- 步骤1：选择作业 -->
     <div v-if="!currentAssignment" class="card-section">
       <h3 style="margin-bottom:16px">选择要查重的作业</h3>
-      <el-table :data="assignments" stripe v-loading="loadingAssignments">
+      <el-table v-if="loadingAssignments || assignments.length > 0" :data="assignments" stripe v-loading="loadingAssignments">
         <el-table-column label="作业标题" min-width="180">
           <template #default="{ row }">
             <div style="font-weight:500">{{ row.title }}</div>

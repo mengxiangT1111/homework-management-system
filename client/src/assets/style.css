@@ -339,12 +339,16 @@ a { color: inherit; text-decoration: none; }
   color: var(--text-light);
 }
 
-/* ===== 登录注册页（分栏：左品牌面板 + 右表单，≤900px 折叠为单列） ===== */
+/* ===== 登录注册页（分栏：左品牌面板 + 右表单，≤900px 折叠为单列）
+   配色与品牌图标统一：图标主绿 #00e18f → #00c574，深底翠绿 #0d4a37 → #072a1e ===== */
 .auth-container {
   min-height: 100vh;
   min-height: 100dvh;
   display: flex;
-  background: var(--ink-50);
+  background:
+    radial-gradient(900px 520px at 88% -12%, rgba(0, 225, 143, 0.10), transparent 60%),
+    radial-gradient(700px 520px at -8% 112%, rgba(0, 180, 116, 0.08), transparent 55%),
+    linear-gradient(180deg, #fbfdfc 0%, #f3faf7 100%);
 }
 
 .auth-panel {
@@ -357,25 +361,14 @@ a { color: inherit; text-decoration: none; }
 
 .auth-box {
   background: #ffffff;
-  border: 1px solid var(--ink-100);
-  border-radius: var(--radius-xl);
-  padding: var(--sp-10) var(--sp-8);
+  border: 1px solid var(--ink-200);
+  border-radius: 24px;
+  padding: 44px 40px 34px;
   width: 100%;
-  max-width: 420px;
-  box-shadow: var(--shadow-md);
-}
-
-@media (max-width: 900px) {
-  /* 单列模式：品牌面板隐藏，恢复薄荷渐变底 */
-  .auth-container {
-    background:
-      radial-gradient(1200px 600px at 80% -10%, rgba(255, 255, 255, 0.55), transparent 60%),
-      linear-gradient(150deg, #e7f7f0 0%, #cdeee0 45%, #a9ddc9 100%);
-    align-items: center;
-    justify-content: center;
-  }
-  .auth-panel { padding: var(--sp-5) var(--sp-4); }
-  .auth-box { box-shadow: var(--shadow-lg); }
+  max-width: 440px;
+  box-shadow:
+    0 1px 2px rgba(20, 68, 48, 0.04),
+    0 16px 48px -16px rgba(20, 68, 48, 0.16);
 }
 
 .auth-logo {
@@ -383,22 +376,124 @@ a { color: inherit; text-decoration: none; }
   margin-bottom: var(--sp-8);
 }
 
-.auth-logo .logo-icon {
-  font-size: 48px;
+/* 图标光环底座：柔绿渐变衬出新 logo */
+.auth-logo .logo-halo {
+  width: 100px;
+  height: 100px;
+  margin: 0 auto;
+  border-radius: 30px;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 50% 34%, rgba(0, 225, 143, 0.17), rgba(0, 225, 143, 0.04) 72%);
+  box-shadow: inset 0 0 0 1px rgba(0, 195, 116, 0.10);
 }
 
 .auth-logo h1 {
-  font-size: var(--fs-2xl);
-  font-weight: 650;
-  color: var(--text);
-  letter-spacing: -0.01em;
-  margin-top: var(--sp-3);
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--ink-800);
+  letter-spacing: 0.01em;
+  margin-top: var(--sp-4);
 }
 
 .auth-logo p {
-  color: var(--text-light);
-  font-size: var(--fs-sm);
+  color: var(--ink-500);
+  font-size: var(--fs-md);
   margin-top: var(--sp-2);
+}
+
+/* ---- 表单控件：圆角、聚焦绿色光环 ---- */
+.auth-box .el-form-item { margin-bottom: 18px; }
+.auth-box .el-form-item:last-of-type { margin-bottom: 6px; }
+
+.auth-box .el-input--large .el-input__wrapper {
+  border-radius: 12px;
+  padding: 3px 14px;
+  background: #fbfdfc;
+  box-shadow: 0 0 0 1px var(--ink-300) inset;
+  transition: box-shadow 0.18s ease, background-color 0.18s ease;
+}
+.auth-box .el-input--large .el-input__wrapper:hover {
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--brand-400) inset;
+}
+.auth-box .el-input--large .el-input__wrapper.is-focus {
+  background: #fff;
+  box-shadow:
+    0 0 0 1px #00b867 inset,
+    0 0 0 4px rgba(0, 225, 143, 0.17);
+}
+.auth-box .el-input--large .el-input__inner { height: 40px; font-size: 15px; }
+.auth-box .el-input__prefix .el-icon { color: var(--ink-400); transition: color 0.18s ease; }
+.auth-box .el-input__wrapper.is-focus .el-input__prefix .el-icon { color: #00a565; }
+
+/* ---- 主按钮：品牌绿渐变 + 悬浮上移 ---- */
+.auth-box .el-button.el-button--primary {
+  width: 100%;
+  height: 48px;
+  margin-top: 4px;
+  border: none;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 600;
+  background: linear-gradient(135deg, #06dc8b 0%, #00b867 100%);
+  box-shadow: 0 12px 26px -10px rgba(0, 184, 103, 0.55);
+  transition: transform 0.16s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+.auth-box .el-button.el-button--primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 16px 30px -10px rgba(0, 184, 103, 0.6);
+  filter: saturate(1.06);
+}
+.auth-box .el-button.el-button--primary:active {
+  transform: translateY(0);
+  filter: none;
+}
+
+/* 注册页身份切换按钮选中态同样走品牌绿渐变 */
+.auth-box .el-radio-button__original-radio:checked + .el-radio-button__inner {
+  background: linear-gradient(135deg, #06dc8b, #00b867);
+  border-color: transparent;
+  box-shadow: -1px 0 0 0 transparent;
+}
+
+/* ---- 页脚 ---- */
+.auth-footer {
+  text-align: center;
+  margin-top: 22px;
+  font-size: 14px;
+  color: var(--ink-600);
+}
+.auth-footer .link {
+  color: #00794e;
+  font-weight: 550;
+  margin-left: 4px;
+}
+.auth-footer .link:hover { text-decoration: underline; }
+
+.auth-copyright {
+  text-align: center;
+  margin-top: 28px;
+  margin-bottom: 0;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: var(--ink-400);
+}
+
+@media (max-width: 900px) {
+  /* 单列模式：品牌面板隐藏，恢复浅绿渐变底 */
+  .auth-container {
+    background:
+      radial-gradient(1100px 560px at 82% -10%, rgba(255, 255, 255, 0.5), transparent 60%),
+      linear-gradient(150deg, #e8fcf2 0%, #cdf2df 48%, #a4e7c6 100%);
+    align-items: center;
+    justify-content: center;
+  }
+  .auth-panel { padding: var(--sp-5) var(--sp-4); }
+  .auth-box {
+    padding: 36px 24px 28px;
+    box-shadow: 0 24px 64px -20px rgba(16, 80, 52, 0.35);
+  }
 }
 
 /* ===== 响应式 ===== */

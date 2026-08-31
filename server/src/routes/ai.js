@@ -46,7 +46,8 @@ router.post('/upload-reference', requireTeacher, uploadWord.single('file'), aiGr
 // 单题 AI 批改
 router.post('/grade', requireTeacher, aiGradingController.aiGrade);
 
-// 批量 AI 批改（一键批改所有未评分学生）
-router.post('/batch-grade', requireTeacher, aiGradingController.aiBatchGrade);
+// 旧版同步批量批改 /batch-grade 已下线：同步 for 循环逐个调 LLM，请求可挂数分钟，
+// 前端超时断开后端仍在写库、易被误判失败而重复触发。批量批改统一走
+// POST /api/grading/tasks/batch（模板化 + 异步队列 + 进度轮询 + 人工复核）
 
 module.exports = router;

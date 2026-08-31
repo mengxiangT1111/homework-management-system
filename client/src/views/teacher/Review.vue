@@ -113,8 +113,8 @@
         <!-- 打分 -->
         <el-form label-width="80px">
           <el-form-item label="分数">
-            <el-input-number v-model="gradeForm.score" :min="0" :max="100" :precision="1" />
-            <span style="margin-left:8px;color:var(--text-light)">/ 100</span>
+            <el-input-number v-model="gradeForm.score" :min="0" :max="gradeMax" :precision="1" />
+            <span style="margin-left:8px;color:var(--text-light)">/ {{ gradeMax }}</span>
           </el-form-item>
           <el-form-item label="评语">
             <el-input v-model="gradeForm.comment" type="textarea" :rows="4" placeholder="请输入评语" />
@@ -410,12 +410,24 @@ async function loadPlagiarismScores() {
   }
 }
 
+const gradeMax = ref(100)
+
 function openGrade(row) {
   current.value = row
   gradeForm.score = row.submission?.score ?? 0
   gradeForm.comment = row.submission?.comment || ''
   gradeForm.status = row.submission?.status === 'returned' ? 'returned' : 'graded'
   gradeVisible.value = true
+  // 评分模板满分允许 1-1000：AI 批改过的提交以模板满分为手动打分上限，
+  // 否则 AI 打出 >100 分后教师无法手动修正（后端校验同口径）
+  gradeMax.value = 100
+  gradingApi.resultBySubmission(row.submission.id).then(res => {
+    const full = Number(res.data?.full_score)
+    if (Number.isFinite(full) && full > 100) {
+      gradeMax.value = Math.min(full, 999.9)
+      if (Number(gradeForm.score) > gradeMax.value) gradeForm.score = gradeMax.value
+    }
+  }).catch(() => {})
 }
 
 async function saveGrade() {

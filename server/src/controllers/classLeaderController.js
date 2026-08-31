@@ -189,19 +189,36 @@ exports.classRemindUnsubmitted = async (req, res, next) => {
     const leaderName = req.user.real_name;
     const leaderPos = req.classLeader.position === 'monitor' ? '班长' : '学委';
 
-    let count = 0;
-    for (const stu of students) {
-      if (submittedSet.has(stu.id)) continue;
-      await Notification.create({
-        user_id: stu.id,
-        title: '同学催交：作业提醒',
-        content: `${leaderPos}${leaderName}提醒你：作业「${assignment.title}」截止 ${new Date(assignment.deadline).toLocaleString('zh-CN')}，请尽快提交！`,
-        type: 'deadline',
-        related_id: assignment.id
-      });
-      count++;
+    const unsubmitted = students.filter(s => !submittedSet.has(s.id));
+    if (unsubmitted.length === 0) {
+      return success(res, { reminded: 0, skipped: 0 }, '当前没有未交同学');
     }
-    return success(res, { reminded: count }, `已催交 ${count} 名同学`);
+    // 1 小时内已催交过的不再重复发送（防连点轰炸学生通知）
+    const recent = await Notification.findAll({
+      where: {
+        type: 'assignment',
+        related_id: assignment.id,
+        user_id: { [Op.in]: unsubmitted.map(s => s.id) },
+        created_at: { [Op.gt]: new Date(Date.now() - 60 * 60 * 1000) }
+      },
+      attributes: ['user_id']
+    });
+    const recentSet = new Set(recent.map(n => n.user_id));
+    const toRemind = unsubmitted.filter(s => !recentSet.has(s.id));
+    if (toRemind.length === 0) {
+      return success(res, { reminded: 0, skipped: unsubmitted.length }, '1 小时内已催交过，未重复发送');
+    }
+    // 注意 type 不能用 'deadline'：系统自动截止提醒按 type='deadline' 去重，
+    // 手动催交若同类型会"顶掉"学生的官方 24 小时截止提醒
+    await Notification.bulkCreate(toRemind.map(stu => ({
+      user_id: stu.id,
+      title: '同学催交：作业提醒',
+      content: `${leaderPos}${leaderName}提醒你：作业「${assignment.title}」截止 ${new Date(assignment.deadline).toLocaleString('zh-CN')}，请尽快提交！`,
+      type: 'assignment',
+      related_id: assignment.id
+    })));
+    return success(res, { reminded: toRemind.length, skipped: unsubmitted.length - toRemind.length },
+      `已催交 ${toRemind.length} 名同学${unsubmitted.length - toRemind.length > 0 ? `（${unsubmitted.length - toRemind.length} 人 1 小时内已催过，跳过）` : ''}`);
   } catch (err) {
     next(err);
   }

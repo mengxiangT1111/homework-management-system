@@ -118,9 +118,9 @@ export const schoolApi = {
 // ===== AI 批改 =====
 export const aiApi = {
   // AI 批改链路长（外部 LLM 调用 + 失败重试），单独放宽超时，
-  // 避免前端 30s 超时报错而后端仍在继续写库、教师误以为失败而重复触发
+  // 避免前端 30s 超时报错而后端仍在继续写库、教师误以为失败而重复触发。
+  // 批量批改已下线旧版同步接口，统一走 gradingApi.batchTask（异步队列）
   grade: (data) => request.post('/ai/grade', data, { timeout: 300000 }),
-  batchGrade: (data) => request.post('/ai/batch-grade', data, { timeout: 600000 }),
   uploadReference: (formData) => request.post('/ai/upload-reference', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 30000

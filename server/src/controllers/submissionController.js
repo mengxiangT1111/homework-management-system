@@ -5,7 +5,7 @@ const { Op } = require('sequelize');
 const archiver = require('archiver');
 const ExcelJS = require('exceljs');
 const {
-  sequelize, Submission, SubmissionFile, Assignment, Course, Class, User, ClassStudent, Notification
+  sequelize, Submission, SubmissionFile, Assignment, Course, Class, User, ClassStudent, Notification, GradingResult
 } = require('../models');
 const { success, fail, paginate, normalizePage } = require('../utils/response');
 const { isOverdue } = require('./assignmentController');
@@ -283,9 +283,21 @@ exports.gradeSubmission = async (req, res, next) => {
     }
     let normalizedScore = sub.score;
     if (score !== undefined && score !== null) {
+      // 手动批改上限默认 100；该提交若已有 AI 批改结果，则以模板满分为准
+      // （评分模板满分允许 1-1000，硬编码 100 会导致 AI 打出 >100 分后教师无法手动修正）。
+      // submissions.score 为 DECIMAL(5,2)，上限同时受 999.9 约束
+      let maxScore = 100;
+      const latestAI = await GradingResult.findOne({
+        where: { submission_id: sub.id },
+        order: [['id', 'DESC']],
+        attributes: ['full_score']
+      });
+      if (latestAI && Number(latestAI.full_score) > 100) {
+        maxScore = Math.min(Number(latestAI.full_score), 999.9);
+      }
       const s = Number(score);
-      if (isNaN(s) || s < 0 || s > 100) {
-        return fail(res, '分数需在 0-100 之间', 422);
+      if (isNaN(s) || s < 0 || s > maxScore) {
+        return fail(res, `分数需在 0-${maxScore} 之间`, 422);
       }
       normalizedScore = s;
     }
@@ -343,18 +355,35 @@ exports.remindUnsubmitted = async (req, res, next) => {
     const submittedSet = new Set(submittedIds);
 
     const unsubmitted = students.filter(s => !submittedSet.has(s.id));
-    if (unsubmitted.length > 0) {
-      // 注意 type 不能用 'deadline'：系统自动截止提醒按 type='deadline' 去重，
-      // 手动催交若同类型会"顶掉"学生的官方 24 小时截止提醒
-      await Notification.bulkCreate(unsubmitted.map(stu => ({
-        user_id: stu.id,
-        title: '作业催交通知',
-        content: `你尚未提交作业「${assignment.title}」，截止时间：${new Date(assignment.deadline).toLocaleString('zh-CN')}，请尽快提交！`,
-        type: 'assignment',
-        related_id: assignment.id
-      })));
+    if (unsubmitted.length === 0) {
+      return success(res, { reminded: 0, skipped: 0 }, '当前没有未交学生');
     }
-    return success(res, { reminded: unsubmitted.length }, `已向 ${unsubmitted.length} 名未交学生发送催交通知`);
+    // 1 小时内已催交过的不再重复发送（防连点轰炸学生通知）
+    const recent = await Notification.findAll({
+      where: {
+        type: 'assignment',
+        related_id: assignment.id,
+        user_id: { [Op.in]: unsubmitted.map(s => s.id) },
+        created_at: { [Op.gt]: new Date(Date.now() - 60 * 60 * 1000) }
+      },
+      attributes: ['user_id']
+    });
+    const recentSet = new Set(recent.map(n => n.user_id));
+    const toRemind = unsubmitted.filter(s => !recentSet.has(s.id));
+    if (toRemind.length === 0) {
+      return success(res, { reminded: 0, skipped: unsubmitted.length }, '1 小时内已催交过，未重复发送');
+    }
+    // 注意 type 不能用 'deadline'：系统自动截止提醒按 type='deadline' 去重，
+    // 手动催交若同类型会"顶掉"学生的官方 24 小时截止提醒
+    await Notification.bulkCreate(toRemind.map(stu => ({
+      user_id: stu.id,
+      title: '作业催交通知',
+      content: `你尚未提交作业「${assignment.title}」，截止时间：${new Date(assignment.deadline).toLocaleString('zh-CN')}，请尽快提交！`,
+      type: 'assignment',
+      related_id: assignment.id
+    })));
+    return success(res, { reminded: toRemind.length, skipped: unsubmitted.length - toRemind.length },
+      `已向 ${toRemind.length} 名未交学生发送催交通知${unsubmitted.length - toRemind.length > 0 ? `（${unsubmitted.length - toRemind.length} 人 1 小时内已催过，跳过）` : ''}`);
   } catch (err) {
     next(err);
   }
