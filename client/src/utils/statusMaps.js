@@ -27,6 +27,11 @@ export const ROLE = {
   admin: { text: '管理员', type: 'danger' }
 }
 
+export const TODO_STATUS = {
+  active: { text: '进行中', type: 'success' },
+  closed: { text: '已结束', type: 'info' }
+}
+
 // 取映射，未命中兜底为中性标签
 export function statusOf(map, key) {
   return map[key] || { text: key || '—', type: 'info' }

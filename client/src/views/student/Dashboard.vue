@@ -66,20 +66,61 @@
           </el-button>
         </div>
       </div>
+
+      <!-- 任务待办（老师/学委发布） -->
+      <div class="card-section" style="margin-top:20px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <h3>
+            <el-icon><Memo /></el-icon>任务待办
+            <el-tag v-if="pendingTodos.length > 0" type="warning" size="small" effect="plain" style="margin-left:8px">
+              {{ pendingTodos.length }} 条未完成
+            </el-tag>
+          </h3>
+          <el-button type="primary" link @click="$router.push('/student/todos')">查看全部</el-button>
+        </div>
+        <EmptyState v-if="pendingTodos.length === 0" size="compact" title="全部完成" description="暂无未完成的任务待办" />
+        <div v-for="item in pendingTodos" :key="item.id" class="todo-item">
+          <div class="todo-info">
+            <div class="todo-title">
+              {{ item.title }}
+              <el-tag v-if="item.is_overdue" type="danger" size="small" effect="plain">已逾期</el-tag>
+            </div>
+            <div class="todo-meta">
+              <span class="deadline">{{ todoCreatorText(item) }}发布</span>
+              <span v-if="item.due_date" class="deadline" :class="{ urgent: isUrgent(item.due_date) }">
+                <el-icon><Clock /></el-icon>
+                截止：{{ formatTime(item.due_date) }}
+              </span>
+              <span v-else class="deadline">无截止时间</span>
+            </div>
+          </div>
+          <el-button type="success" size="small" :loading="completingId === item.id" @click="handleCompleteTodo(item)">
+            标记完成
+          </el-button>
+        </div>
+      </div>
     </template>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import { School, Reading, AlarmClock, Finished, Clock, Tickets } from '@element-plus/icons-vue'
-import { statsApi, assignmentApi, classApi } from '@/api'
+import { ref, computed, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
+import { School, Reading, AlarmClock, Finished, Clock, Tickets, Memo } from '@element-plus/icons-vue'
+import { statsApi, assignmentApi, classApi, todoApi } from '@/api'
 
 const stats = ref({})
 const pending = ref([])
 const classNames = ref([])
+const todos = ref([])
+const completingId = ref(null)
 const loading = ref(true)
 const loadError = ref(false)
+
+// 进行中且我未完成的任务待办（最多展示 5 条，其余进「任务待办」页）
+const pendingTodos = computed(() =>
+  todos.value.filter(t => t.status === 'active' && !t.my_completion).slice(0, 5)
+)
 
 function formatTime(t) {
   const d = new Date(t)
@@ -89,15 +130,33 @@ function isUrgent(deadline) {
   const diff = new Date(deadline) - new Date()
   return diff < 24 * 60 * 60 * 1000 && diff > 0
 }
+function todoCreatorText(item) {
+  const identity = item.creator_identity ||
+    (item.creator?.role === 'teacher' ? '老师' : (item.creator?.role === 'student' ? '同学' : ''))
+  return `${identity}${item.creator?.real_name || ''}`
+}
+
+async function handleCompleteTodo(item) {
+  completingId.value = item.id
+  try {
+    await todoApi.complete(item.id)
+    ElMessage.success('已完成该待办')
+    // 本地移除，避免整页刷新打断浏览
+    todos.value = todos.value.filter(t => t.id !== item.id)
+  } finally {
+    completingId.value = null
+  }
+}
 
 async function loadData() {
   loading.value = true
   loadError.value = false
   // allSettled 保留部分成功：仅全部失败才进入错误态
-  const [s, res, c] = await Promise.allSettled([
+  const [s, res, c, t] = await Promise.allSettled([
     statsApi.student(),
     assignmentApi.list({ pageSize: 50 }),
-    classApi.myClasses()
+    classApi.myClasses(),
+    todoApi.list({ pageSize: 50, status: 'active' })
   ])
   if (s.status === 'fulfilled') stats.value = s.value.data
   if (res.status === 'fulfilled') {
@@ -106,7 +165,10 @@ async function loadData() {
   if (c.status === 'fulfilled') {
     classNames.value = c.value.data.map(x => x.name)
   }
-  loadError.value = s.status === 'rejected' && res.status === 'rejected'
+  if (t.status === 'fulfilled') {
+    todos.value = t.value.data.list
+  }
+  loadError.value = s.status === 'rejected' && res.status === 'rejected' && t.status === 'rejected'
   loading.value = false
 }
 

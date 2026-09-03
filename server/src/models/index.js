@@ -14,6 +14,8 @@ const PlagiarismResult = require('./PlagiarismResult');
 const PlagiarismTask = require('./PlagiarismTask');
 const UploadRecord = require('./UploadRecord');
 const ChunkOwnership = require('./ChunkOwnership');
+const Todo = require('./Todo');
+const TodoCompletion = require('./TodoCompletion');
 
 // AI 智能批改模块
 const {
@@ -91,6 +93,15 @@ Submission.hasMany(SubmissionFile, { as: 'files', foreignKey: 'submission_id' })
 Notification.belongsTo(User, { as: 'user', foreignKey: 'user_id' });
 User.hasMany(Notification, { as: 'notifications', foreignKey: 'user_id' });
 
+// 待办 - 班级/发布者/完成记录
+Todo.belongsTo(Class, { as: 'class', foreignKey: 'class_id' });
+Class.hasMany(Todo, { as: 'todos', foreignKey: 'class_id' });
+Todo.belongsTo(User, { as: 'creator', foreignKey: 'created_by' });
+TodoCompletion.belongsTo(Todo, { as: 'todo', foreignKey: 'todo_id' });
+Todo.hasMany(TodoCompletion, { as: 'completions', foreignKey: 'todo_id' });
+TodoCompletion.belongsTo(User, { as: 'student', foreignKey: 'student_id' });
+User.hasMany(TodoCompletion, { as: 'todoCompletions', foreignKey: 'student_id' });
+
 // 查重结果 - 提交
 PlagiarismResult.belongsTo(Submission, { as: 'submission', foreignKey: 'submission_id' });
 Submission.hasMany(PlagiarismResult, { as: 'plagiarismResults', foreignKey: 'submission_id' });
@@ -138,6 +149,8 @@ module.exports = {
   PlagiarismTask,
   UploadRecord,
   ChunkOwnership,
+  Todo,
+  TodoCompletion,
   GradingTemplate,
   GradingDimension,
   DimensionRubric,

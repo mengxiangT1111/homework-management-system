@@ -97,6 +97,20 @@ export const submissionApi = {
   exportExcel: (assignmentId) => `/api/submissions/assignment/${assignmentId}/export`
 }
 
+// ===== 任务待办 =====
+export const todoApi = {
+  // 学生=本班待办+我的完成状态；教师=我发布的待办（可按班/状态筛选）
+  list: (params) => request.get('/todos', { params }),
+  teacherClasses: () => request.get('/todos/teacher/classes'),
+  create: (data) => request.post('/todos', data),
+  update: (id, data) => request.put(`/todos/${id}`, data),
+  remove: (id) => request.delete(`/todos/${id}`),
+  progress: (id) => request.get(`/todos/${id}/progress`),
+  remind: (id) => request.post(`/todos/${id}/remind`),
+  complete: (id) => request.post(`/todos/${id}/complete`),
+  uncomplete: (id) => request.delete(`/todos/${id}/complete`)
+}
+
 // ===== 通知 =====
 export const notificationApi = {
   list: (params) => request.get('/notifications', { params }),

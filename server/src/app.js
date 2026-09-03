@@ -58,6 +58,7 @@ app.use('/api/users', require('./routes/users'));
 app.use('/api/classes', require('./routes/classes'));
 app.use('/api/courses', require('./routes/courses'));
 app.use('/api/assignments', require('./routes/assignments'));
+app.use('/api/todos', require('./routes/todos'));
 app.use('/api/submissions', require('./routes/submissions'));
 app.use('/api/upload', require('./routes/upload'));
 app.use('/api/notifications', require('./routes/notifications'));

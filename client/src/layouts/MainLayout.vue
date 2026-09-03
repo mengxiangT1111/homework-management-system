@@ -119,6 +119,7 @@ const menuConfig = {
       { path: '/student/classes', title: '我的班级', icon: 'School' },
       { path: '/student/assignments', title: '作业列表', icon: 'Document' },
       { path: '/student/submissions', title: '我的提交', icon: 'UploadFilled' },
+      { path: '/student/todos', title: '任务待办', icon: 'Tickets' },
       { path: '/student/notifications', title: '消息通知', icon: 'Bell' }
     ] },
     { label: '协作', items: [
@@ -131,6 +132,7 @@ const menuConfig = {
     { label: '教学', items: [
       { path: '/teacher/dashboard', title: '仪表盘', icon: 'HomeFilled' },
       { path: '/teacher/assignments', title: '作业管理', icon: 'Document' },
+      { path: '/teacher/todos', title: '任务待办', icon: 'Tickets' },
       { path: '/teacher/courses', title: '我的课程', icon: 'Reading' }
     ] },
     { label: 'AI 批改', items: [
