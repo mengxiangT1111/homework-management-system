@@ -9,10 +9,10 @@
 
     <div class="card-section">
       <div class="filter-bar">
-        <el-input v-model="keyword" placeholder="搜索学校名称/代码" clearable style="width:240px" @keyup.enter="loadData" @clear="loadData">
+        <el-input v-model="keyword" placeholder="搜索学校名称/代码" clearable style="width:240px" @keyup.enter="search" @clear="search">
           <template #prefix><el-icon><Search /></el-icon></template>
         </el-input>
-        <el-button type="primary" @click="loadData">搜索</el-button>
+        <el-button type="primary" @click="search">搜索</el-button>
       </div>
 
       <el-table v-loading="loading" :data="list" stripe>
@@ -59,6 +59,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Search } from '@element-plus/icons-vue'
 import { schoolApi } from '@/api'
+import { formatTime as fmtTime } from '@/utils/format'
 
 const list = ref([])
 const total = ref(0)
@@ -72,7 +73,8 @@ const editId = ref(null)
 const saving = ref(false)
 const form = reactive({ name: '', code: '' })
 
-function formatTime(t) { return new Date(t).toLocaleString('zh-CN') }
+// 复用带兜底的格式化：时间字段异常时显示 '—' 而不是 Invalid Date
+function formatTime(t) { return fmtTime(t) }
 
 async function loadData() {
   loading.value = true
@@ -83,6 +85,8 @@ async function loadData() {
   } finally { loading.value = false }
 }
 function handlePage(p) { page.value = p; loadData() }
+// 筛选/搜索时重置到第一页：停留在超出结果页数的空页会误以为筛选无结果
+function search() { page.value = 1; loadData() }
 
 function openCreate() {
   editId.value = null

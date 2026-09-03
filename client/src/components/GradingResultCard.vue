@@ -99,7 +99,11 @@ const radarEl = ref(null)
 let chart = null
 
 const scoreLevel = computed(() => {
-  const p = Number(props.result.total_score) / Number(props.result.full_score)
+  // full_score 缺失/为 0 时比值是 NaN/Infinity，一律落入最后一档会误显红色"poor"
+  const total = Number(props.result.total_score)
+  const full = Number(props.result.full_score)
+  if (!Number.isFinite(total) || !Number.isFinite(full) || full <= 0) return ''
+  const p = total / full
   return p >= 0.85 ? 'excellent' : p >= 0.7 ? 'good' : p >= 0.6 ? 'pass' : 'poor'
 })
 

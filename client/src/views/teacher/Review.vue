@@ -337,7 +337,7 @@ import { ArrowLeft, Document, MagicStick, Tickets, EditPen, ChatDotRound, Warnin
 import FilePreview from '@/components/FilePreview.vue'
 import PlagiarismDetail from '@/components/PlagiarismDetail.vue'
 import { assignmentApi, submissionApi, downloadFile, plagiarismApi, aiApi, gradingApi } from '@/api'
-import { fileUrl as resolveFileUrl, isCOS } from '@/utils/fileUrl'
+import { resolveFileUrl, isCOS } from '@/utils/fileUrl'
 
 const route = useRoute()
 const data = ref(null)
@@ -384,7 +384,10 @@ const batchGradedCount = computed(() =>
   (data.value?.students || []).filter(s => s.submitted && s.submission && s.submission.status === 'graded').length
 )
 
-function formatTime(t) { return new Date(t).toLocaleString('zh-CN') }
+function formatTime(t) {
+  const d = new Date(t)
+  return isNaN(d.getTime()) ? '—' : d.toLocaleString('zh-CN')
+}
 
 async function loadData() {
   const res = await assignmentApi.submissions(route.params.id)
@@ -446,11 +449,14 @@ function previewFile(f) {
   previewVisible.value = true
 }
 
-function downloadF(f) {
+async function downloadF(f) {
   if (isCOS(f.file_path)) {
-    window.open(resolveFileUrl(f.file_path), '_blank')
+    const u = await resolveFileUrl(f.file_path)
+    if (u) window.open(u, '_blank')
   } else {
-    downloadFile('/' + f.file_path, f.original_name)
+    // 本地文件必须走带 Authorization 的授权下载接口；
+    // 旧 /uploads 静态路由已下线，走它会在生产拿到 index.html（SPA fallback）
+    downloadFile('/api/files/download?path=' + encodeURIComponent(f.file_path), f.original_name)
   }
 }
 

@@ -92,7 +92,9 @@ exports.getCourse = async (req, res, next) => {
     const course = await Course.findByPk(req.params.id, {
       include: [
         { model: Class, as: 'class' },
-        { model: User, as: 'teacher', attributes: ['id', 'real_name', 'email'] }
+        // 教师邮箱不再下发（学生/其他教师可见此接口，属个人信息；
+        // 与作业详情对学生剥离 email 的口径保持一致）
+        { model: User, as: 'teacher', attributes: ['id', 'real_name'] }
       ]
     });
     if (!course) return fail(res, '课程不存在', 404);
@@ -167,6 +169,7 @@ exports.updateCourse = async (req, res, next) => {
       if (teacher.school_id !== newSchoolId) return fail(res, '任课教师必须属于该班级所在学校', 422);
     }
 
+    const oldTeacherId = course.teacher_id;
     await course.update({
       name: name || course.name,
       class_id: newClassId,
@@ -175,6 +178,13 @@ exports.updateCourse = async (req, res, next) => {
       description: description !== undefined ? description : course.description,
       semester: semester !== undefined ? semester : course.semester
     });
+
+    // 任课教师变更后同步该课程全部作业的 teacher_id：
+    // 教师端作业/批改/查重权限全部按 assignment.teacher_id 判断，不同步会留下
+    // 只有管理员能管的"无主作业"（配合删除教师时的阻断检查）
+    if (newTeacherId !== oldTeacherId) {
+      await Assignment.update({ teacher_id: newTeacherId }, { where: { course_id: course.id } });
+    }
     return success(res, course, '更新成功');
   } catch (err) {
     next(err);

@@ -132,6 +132,11 @@
           </button>
         </view>
       </template>
+      <!-- 加载失败/缺参：给出原因与重试入口，不再整页空白 -->
+      <view class="card" v-else>
+        <empty-state icon="⚠️" text="作业加载失败" :sub="loadError || '网络异常，请稍后重试'" />
+        <button class="btn-ghost err-retry" hover-class="hv" @click="loadStudent">重新加载</button>
+      </view>
     </template>
 
     <!-- ===== 教师视角 ===== -->
@@ -170,7 +175,15 @@
           </view>
           <view class="d-ops">
             <button class="btn-ghost op-btn" hover-class="hv" @click="goEdit">✏️ 编辑</button>
-            <button class="op-btn" :class="closed ? 'btn-ghost' : 'btn-danger'" hover-class="hv" @click="toggleStatus">
+            <!-- status 未知（聚合接口不含 status 且补拉失败）时隐藏开关按钮：
+                 已关闭作业会误显示"关闭作业"，点了就是对已关闭作业重复发关闭 -->
+            <button
+              v-if="statusKnown"
+              class="op-btn"
+              :class="closed ? 'btn-ghost' : 'btn-danger'"
+              hover-class="hv"
+              @click="toggleStatus"
+            >
               {{ closed ? '↺ 重新开启' : '⏸ 关闭作业' }}
             </button>
             <button class="btn-ghost op-btn" hover-class="hv" @click="remind">📣 催交</button>
@@ -262,6 +275,11 @@
           </view>
         </view>
       </template>
+      <!-- 加载失败/缺参：给出原因与重试入口，不再整页空白 -->
+      <view class="card" v-else>
+        <empty-state icon="⚠️" text="作业加载失败" :sub="loadError || '网络异常，请稍后重试'" />
+        <button class="btn-ghost err-retry" hover-class="hv" @click="loadTeacher">重新加载</button>
+      </view>
     </template>
 
     <!-- AI 批改发起弹层 -->
@@ -323,7 +341,7 @@
 
 <script setup>
 import { ref, computed } from 'vue'
-import { onLoad, onShow, onUnload } from '@dcloudio/uni-app'
+import { onLoad, onShow, onHide, onUnload } from '@dcloudio/uni-app'
 import { get, post, put } from '../../utils/request'
 import { useAuthStore } from '../../stores/auth'
 import { formatDateTime, remainingText, formatConfidence } from '../../utils/format'
@@ -340,6 +358,8 @@ let assignmentId = null
 const assignment = ref(null)
 const aiResult = ref(null)
 const aiExpanded = ref(false)
+// 加载失败/缺参提示（此前失败时整页纯白无任何反馈）
+const loadError = ref('')
 
 // 教师侧
 const detail = ref(null)
@@ -362,6 +382,9 @@ const currentAssignment = computed(
 )
 const st = computed(() => assignmentStatus(currentAssignment.value))
 const closed = computed(() => !!(currentAssignment.value && currentAssignment.value.status === 'closed'))
+// status 是否已知：聚合接口的 assignment 不含 status 字段，只有完整作业详情才有。
+// 补拉失败时 status 未知，此时隐藏开/关按钮，避免对已关闭作业误发"关闭"操作
+const statusKnown = computed(() => !!(currentAssignment.value && currentAssignment.value.status))
 const overdue = computed(() => !!(currentAssignment.value && currentAssignment.value.is_overdue))
 const rem = computed(() => remainingText(currentAssignment.value && currentAssignment.value.deadline))
 const mySubmission = computed(() => assignment.value && assignment.value.my_submission)
@@ -392,10 +415,18 @@ onLoad((q) => {
   assignmentId = q.id
 })
 onShow(() => {
-  if (!auth.isLoggedIn || !assignmentId) return
+  if (!auth.isLoggedIn) return
+  // 缺少 id（分享/扫码误入、通知跳转已删除作业）时给出明确提示而不是整页空白
+  if (!assignmentId) {
+    loadError.value = '缺少作业参数，请从作业列表重新进入'
+    return
+  }
+  loadError.value = ''
   if (isStudent.value) loadStudent()
   else if (isTeacher.value) loadTeacher()
 })
+// 页面被压栈（进批改/编辑页）时停止轮询，回到本页 onShow 会按需重启
+onHide(() => stopPolling())
 onUnload(() => stopPolling())
 
 // 纯视图辅助：姓名首字 / 维度得分百分比
@@ -418,6 +449,8 @@ async function loadStudent() {
   try {
     assignment.value = await get('/api/assignments/' + assignmentId)
   } catch (e) {
+    assignment.value = null
+    loadError.value = '作业加载失败或已被删除'
     return
   }
   const sub = assignment.value && assignment.value.my_submission
@@ -455,6 +488,8 @@ async function loadTeacher() {
   try {
     detail.value = await get('/api/assignments/' + assignmentId + '/submissions')
   } catch (e) {
+    detail.value = null
+    loadError.value = '作业加载失败或已被删除'
     return
   }
   // 聚合接口的 assignment 不含 status/need_grading，补拉一次完整作业详情
@@ -841,6 +876,12 @@ function remind() {
 .mode-group { display: flex; gap: 36rpx; }
 .mode-item { display: flex; align-items: center; gap: 6rpx; font-size: 28rpx; color: #47544e; }
 .input-ph { color: #a8bdb4; }
+/* 加载失败卡的重试按钮 */
+.err-retry {
+  width: 100%;
+  height: 80rpx;
+  margin-top: 24rpx;
+}
 /* fixbar 悬浮条不遮挡底部内容（学生提交按钮） */
 .page {
   padding-bottom: 170rpx;

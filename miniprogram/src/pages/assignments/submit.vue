@@ -39,7 +39,7 @@
             <text class="sec-title">文件清单</text>
             <text class="meta">{{ items.length }}/{{ maxFiles }}</text>
           </view>
-          <view class="file-item" v-for="(it, idx) in items" :key="it.path">
+          <view class="file-item" v-for="(it, idx) in items" :key="it.path + '-' + idx">
             <view class="icon-tile tile-mint"><text>📄</text></view>
             <view class="cell-main">
               <text class="ellipsis file-name">{{ it.name }}</text>
@@ -72,6 +72,11 @@
         </view>
       </template>
     </template>
+    <!-- 加载失败/缺参：给出原因与重试入口，不再整页空白 -->
+    <view class="card" v-else style="margin-top: 24rpx;">
+      <empty-state icon="⚠️" text="作业加载失败" :sub="loadError || '网络异常，请稍后重试'" />
+      <button class="btn-ghost err-retry" hover-class="hv" @click="loadAssignment">重新加载</button>
+    </view>
   </view>
 </template>
 
@@ -89,6 +94,8 @@ const assignment = ref(null)
 const items = ref([]) // { path, name, size, ext, status, progress, descriptor }
 const remark = ref('')
 const submitting = ref(false)
+// 加载失败/缺参提示（此前失败时整页纯白无任何反馈）
+const loadError = ref('')
 
 const maxFiles = computed(() => (assignment.value && assignment.value.max_files) || 5)
 const maxSizeMb = computed(() => (assignment.value && assignment.value.max_size_mb) || 100)
@@ -103,14 +110,21 @@ onLoad((q) => {
   assignmentId = q.id
 })
 onShow(() => {
-  if (assignmentId) loadAssignment()
+  // 缺少 id（通知跳转已删除作业/分享误入）时给出明确提示而不是整页空白
+  if (!assignmentId) {
+    loadError.value = '缺少作业参数，请从作业列表重新进入'
+    return
+  }
+  loadError.value = ''
+  loadAssignment()
 })
 
 async function loadAssignment() {
   try {
     assignment.value = await get('/api/assignments/' + assignmentId)
   } catch (e) {
-    // 错误已提示
+    assignment.value = null
+    loadError.value = '作业加载失败或已被删除'
   }
 }
 
@@ -318,6 +332,12 @@ async function submitAll() {
   padding: 4rpx 8rpx;
 }
 .input-ph { color: #a8bdb4; }
+/* 加载失败卡的重试按钮 */
+.err-retry {
+  width: 100%;
+  height: 80rpx;
+  margin-top: 24rpx;
+}
 /* fixbar 悬浮条不遮挡底部内容 */
 .page {
   padding-bottom: 170rpx;

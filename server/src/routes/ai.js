@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const aiGradingController = require('../controllers/aiGradingController');
 const { auth } = require('../middleware/auth');
+const { aiLimiter, uploadLimiter } = require('../middleware/rateLimit');
 
 // Word 上传存储配置
 const TMP_DIR = path.join(__dirname, '../../uploads/tmp');
@@ -41,10 +42,10 @@ function requireTeacher(req, res, next) {
 router.use(auth);
 
 // 上传 Word 参考答案并提取文本
-router.post('/upload-reference', requireTeacher, uploadWord.single('file'), aiGradingController.uploadReference);
+router.post('/upload-reference', requireTeacher, uploadLimiter, uploadWord.single('file'), aiGradingController.uploadReference);
 
 // 单题 AI 批改
-router.post('/grade', requireTeacher, aiGradingController.aiGrade);
+router.post('/grade', requireTeacher, aiLimiter, aiGradingController.aiGrade);
 
 // 旧版同步批量批改 /batch-grade 已下线：同步 for 循环逐个调 LLM，请求可挂数分钟，
 // 前端超时断开后端仍在写库、易被误判失败而重复触发。批量批改统一走

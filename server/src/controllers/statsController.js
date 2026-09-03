@@ -24,22 +24,30 @@ exports.overview = async (req, res, next) => {
     let totalSubmitted = 0;
     if (activeAssignments.length > 0) {
       const classIds = [...new Set(activeAssignments.map(a => a.course.class_id))];
-      const [classCounts, subCounts] = await Promise.all([
-        ClassStudent.findAll({
-          where: { class_id: { [Op.in]: classIds } },
-          attributes: ['class_id', [sequelize.fn('COUNT', sequelize.col('id')), 'cnt']],
-          group: 'class_id'
-        }),
+      // 只统计本班在读学生（退班学生的历史提交不再计入，否则提交率可 >100%、未交数为负）
+      const classStudents = await ClassStudent.findAll({
+        where: { class_id: { [Op.in]: classIds } },
+        attributes: ['class_id', 'student_id']
+      });
+      const membersByClass = new Map();
+      for (const cs of classStudents) {
+        if (!membersByClass.has(cs.class_id)) membersByClass.set(cs.class_id, new Set());
+        membersByClass.get(cs.class_id).add(cs.student_id);
+      }
+      const allMemberIds = [...new Set(classStudents.map(cs => cs.student_id))];
+      const [subCounts] = await Promise.all([
         Submission.findAll({
-          where: { assignment_id: { [Op.in]: activeAssignments.map(a => a.id) } },
+          where: {
+            assignment_id: { [Op.in]: activeAssignments.map(a => a.id) },
+            student_id: { [Op.in]: allMemberIds.length ? allMemberIds : [0] }
+          },
           attributes: ['assignment_id', [sequelize.fn('COUNT', sequelize.col('id')), 'cnt']],
           group: 'assignment_id'
         })
       ]);
-      const classSizeMap = new Map(classCounts.map(c => [c.class_id, Number(c.get('cnt'))]));
       const subCountMap = new Map(subCounts.map(s => [s.assignment_id, Number(s.get('cnt'))]));
       for (const a of activeAssignments) {
-        totalShouldSubmit += classSizeMap.get(a.course.class_id) || 0;
+        totalShouldSubmit += (membersByClass.get(a.course.class_id) || new Set()).size;
         totalSubmitted += subCountMap.get(a.id) || 0;
       }
     }
@@ -79,22 +87,29 @@ exports.assignmentSubmitRates = async (req, res, next) => {
     const result = [];
     if (validAssignments.length > 0) {
       const classIds = [...new Set(validAssignments.map(a => a.course.class_id))];
-      const [classCounts, subCounts] = await Promise.all([
-        ClassStudent.findAll({
-          where: { class_id: { [Op.in]: classIds } },
-          attributes: ['class_id', [sequelize.fn('COUNT', sequelize.col('id')), 'cnt']],
-          group: 'class_id'
-        }),
-        Submission.findAll({
-          where: { assignment_id: { [Op.in]: validAssignments.map(a => a.id) } },
-          attributes: ['assignment_id', [sequelize.fn('COUNT', sequelize.col('id')), 'cnt']],
-          group: 'assignment_id'
-        })
-      ]);
-      const classSizeMap = new Map(classCounts.map(c => [c.class_id, Number(c.get('cnt'))]));
+      // 只统计本班在读学生（与班委端口径一致：退班学生的历史提交不计入，
+      // 否则提交率可 >100%、未交数为负）
+      const classStudents = await ClassStudent.findAll({
+        where: { class_id: { [Op.in]: classIds } },
+        attributes: ['class_id', 'student_id']
+      });
+      const membersByClass = new Map();
+      for (const cs of classStudents) {
+        if (!membersByClass.has(cs.class_id)) membersByClass.set(cs.class_id, new Set());
+        membersByClass.get(cs.class_id).add(cs.student_id);
+      }
+      const allMemberIds = [...new Set(classStudents.map(cs => cs.student_id))];
+      const subCounts = await Submission.findAll({
+        where: {
+          assignment_id: { [Op.in]: validAssignments.map(a => a.id) },
+          student_id: { [Op.in]: allMemberIds.length ? allMemberIds : [0] }
+        },
+        attributes: ['assignment_id', [sequelize.fn('COUNT', sequelize.col('id')), 'cnt']],
+        group: 'assignment_id'
+      });
       const subCountMap = new Map(subCounts.map(s => [s.assignment_id, Number(s.get('cnt'))]));
       for (const a of validAssignments) {
-        const classSize = classSizeMap.get(a.course.class_id) || 0;
+        const classSize = (membersByClass.get(a.course.class_id) || new Set()).size;
         const subCnt = subCountMap.get(a.id) || 0;
         const rate = classSize > 0 ? Math.round((subCnt / classSize) * 100) : 0;
         result.push({

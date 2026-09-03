@@ -74,6 +74,8 @@ services:
       COS_REGION: ${COS_REGION:-}
       # ===== 可选：查重检测服务（仅部署了 Python 检测服务时配置，容器内访问宿主机用宿主机IP） =====
       DETECTION_SERVICE_URL: ${DETECTION_SERVICE_URL:-http://localhost:8000}
+      # 服务间共享鉴权 token（必配，与 Python 检测服务侧同值；留空则查重功能整体禁用）
+      DETECTION_API_TOKEN: ${DETECTION_API_TOKEN:-}
     volumes:
       - backend_uploads:/app/uploads
     networks:

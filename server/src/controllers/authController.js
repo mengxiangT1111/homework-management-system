@@ -3,6 +3,10 @@ const { User, ClassStudent, Class, School, Notification } = require('../models')
 const { success, fail } = require('../utils/response');
 const { generateToken, sanitizeUser } = require('../utils/auth');
 
+// 用户不存在时也执行一次等代价的 bcrypt 比较，抹平响应时序差
+// （存在账号 ~60ms vs 不存在 ~2ms，可被远程计时枚举有效学号）
+const DUMMY_HASH = bcrypt.hashSync('timing-equalizer-dummy-password', 10);
+
 // 注册
 exports.register = async (req, res, next) => {
   try {
@@ -76,7 +80,7 @@ exports.register = async (req, res, next) => {
       return success(res, { pending_review: true }, '注册成功！教师账号需管理员审核通过后才能登录');
     }
 
-    const token = generateToken(user.id);
+    const token = generateToken(user.id, user.password);
     return success(res, { token, user: sanitizeUser(user) }, '注册成功');
   } catch (err) {
     next(err);
@@ -98,7 +102,10 @@ exports.login = async (req, res, next) => {
       : { username, school_id: null };
 
     const user = await User.findOne({ where });
-    if (!user) {
+    // 先验密码再查账号状态：此前状态检查在 bcrypt 之前，用任意错误密码即可
+    // 通过 403/401 的差异枚举账号存在性与审核状态（实测复现）
+    const valid = await bcrypt.compare(password, user ? user.password : DUMMY_HASH);
+    if (!user || !valid) {
       return fail(res, '学号/工号或密码错误（请确认学校选择是否正确）', 401);
     }
     if (user.status !== 1) {
@@ -107,12 +114,8 @@ exports.login = async (req, res, next) => {
       }
       return fail(res, '账号已被禁用，请联系管理员', 403);
     }
-    const valid = await bcrypt.compare(password, user.password);
-    if (!valid) {
-      return fail(res, '学号/工号或密码错误', 401);
-    }
 
-    const token = generateToken(user.id);
+    const token = generateToken(user.id, user.password);
     return success(res, { token, user: sanitizeUser(user) }, '登录成功');
   } catch (err) {
     next(err);

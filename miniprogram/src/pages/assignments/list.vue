@@ -61,7 +61,6 @@ const isTeacher = computed(() => auth.role === 'teacher')
 
 const list = ref([])
 const page = ref(1)
-const pageSize = 10
 const total = ref(0)
 const loading = ref(false)
 const finished = computed(() => total.value > 0 && list.value.length >= total.value)

@@ -198,8 +198,8 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Search, Document, Delete, InfoFilled, ArrowDown } from '@element-plus/icons-vue'
 import { assignmentApi, submissionApi, downloadFile } from '@/api'
 import { uploadFileChunked } from '@/utils/upload'
-import { toPickerValue } from '@/utils/format'
-import { fileUrl } from '@/utils/fileUrl'
+import { toPickerValue, localToISO } from '@/utils/format'
+import { resolveFileUrls } from '@/utils/fileUrl'
 
 const list = ref([])
 const total = ref(0)
@@ -221,7 +221,10 @@ const editSampleDocs = ref([])
 const editSampleTab = ref('image')
 const formatOptions = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'jpg', 'jpeg', 'png', 'gif', 'zip', 'rar', 'txt']
 
-function formatTime(t) { return new Date(t).toLocaleString('zh-CN') }
+function formatTime(t) {
+  const d = new Date(t)
+  return isNaN(d.getTime()) ? '—' : d.toLocaleString('zh-CN')
+}
 
 async function loadData() {
   loading.value = true
@@ -254,9 +257,21 @@ function openEdit(row) {
   editForm.description = row.description || ''
   editForm.need_grading = !!row.need_grading
   editForm.sample_files = row.sample_files || []
-  editSampleImages.value = []
-  editSampleDocs.value = []
+  // 清空上一份新增样例并释放其 blob URL（视频样例可达 100MB，不 revoke 内存只增不减）
+  ;[editSampleImages, editSampleVideos, editSampleDocs].forEach(l => {
+    l.value.forEach(item => { if (item && item.url.startsWith('blob:')) URL.revokeObjectURL(item.url) })
+    l.value = []
+  })
   editVisible.value = true
+  // 已存样例的访问 URL 需经 /api/files/urls 换取短时效票据，打开弹窗后异步填充
+  resolveFileUrls((row.sample_files || []).map(s => s && s.url).filter(Boolean))
+    .then(map => { sampleUrlMap.value = map })
+}
+
+// 已存样例访问 URL（解析完成后生效；模板同步读取）
+const sampleUrlMap = ref({})
+function fileUrl(url) {
+  return sampleUrlMap.value[url] || ''
 }
 
 function handleEditSample(file, type) {
@@ -270,9 +285,11 @@ function handleEditSample(file, type) {
 }
 
 function removeEditSample(type, idx) {
-  if (type === 'image') editSampleImages.value.splice(idx, 1)
-  else if (type === 'video') editSampleVideos.value.splice(idx, 1)
-  else if (type === 'document') editSampleDocs.value.splice(idx, 1)
+  const list = type === 'image' ? editSampleImages : type === 'video' ? editSampleVideos : editSampleDocs
+  const item = list.value[idx]
+  // 释放 blob URL（不 revoke 内存常驻，大视频样例下泄漏明显）
+  if (item && item.url.startsWith('blob:')) URL.revokeObjectURL(item.url)
+  list.value.splice(idx, 1)
 }
 
 // 已保存样例按类型分组（type 为创建时记录的 MIME，空缺时按扩展名兜底）
@@ -308,7 +325,8 @@ async function saveEdit() {
       } catch (e) { ElMessage.warning(`样例文件 ${s.name} 上传失败`) }
     }
     editForm.sample_files = [...(editForm.sample_files || []), ...uploadedSamples]
-    await assignmentApi.update(editingId.value, editForm)
+    // deadline 为 picker 本地串，转 ISO 提交避免跨时区/UTC 容器漂移
+    await assignmentApi.update(editingId.value, { ...editForm, deadline: localToISO(editForm.deadline) })
     ElMessage.success('修改成功')
     editVisible.value = false
     loadData()

@@ -8,15 +8,18 @@ require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 const cosConfig = {
   SecretId: process.env.COS_SECRET_ID,
   SecretKey: process.env.COS_SECRET_KEY,
-  Bucket: process.env.COS_BUCKET || 'mengxiang-1405756754',
+  // 桶名/地域均从环境变量读取；不再硬编码默认桶（含账号 APPID，属信息泄露，
+  // 且误配置时会静默读写到错误的桶）
+  Bucket: process.env.COS_BUCKET || '',
   Region: process.env.COS_REGION || 'ap-beijing'
 };
 
-// 检查是否配置了有效密钥（未配置时降级为本地存储）
-const isCOSConfigured = cosConfig.SecretId &&
+// 检查是否配置了有效密钥与桶名（未配置时降级为本地存储）
+const isCOSConfigured = !!(cosConfig.SecretId &&
   cosConfig.SecretKey &&
+  cosConfig.Bucket &&
   !cosConfig.SecretId.includes('在这里填') &&
-  !cosConfig.SecretKey.includes('在这里填');
+  !cosConfig.SecretKey.includes('在这里填'));
 
 const cosClient = new COS({
   SecretId: cosConfig.SecretId,

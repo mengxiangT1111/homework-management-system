@@ -25,8 +25,15 @@ async function seedProd() {
 
     console.log('数据库连接成功，开始初始化管理员账号...\n');
 
+    // 必须显式提供管理员密码：禁止弱口令兜底（此前忘记设置 ADMIN_PASSWORD
+    // 会静默创建 admin/admin123，任何人可直接接管平台）
     const adminUser = process.env.ADMIN_USERNAME || 'admin';
-    const adminPwd = process.env.ADMIN_PASSWORD || 'admin123';
+    const adminPwd = process.env.ADMIN_PASSWORD;
+    if (!adminPwd || adminPwd.length < 8) {
+      console.error('✗ 必须通过环境变量 ADMIN_PASSWORD 提供至少 8 位的管理员初始密码');
+      console.error('  可用 openssl rand -base64 18 生成');
+      process.exit(1);
+    }
 
     const [admin, created] = await User.findOrCreate({
       where: { username: adminUser },

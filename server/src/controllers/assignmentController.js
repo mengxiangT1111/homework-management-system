@@ -3,6 +3,7 @@ const {
   sequelize, Assignment, Course, User, Class, Submission, SubmissionFile, ClassStudent
 } = require('../models');
 const { success, fail, paginate, normalizePage } = require('../utils/response');
+const { sanitizeSampleFiles, parseAssignmentLimits } = require('../utils/assignmentInput');
 
 // 判断作业是否逾期
 function isOverdue(assignment) {
@@ -143,7 +144,8 @@ exports.getAssignment = async (req, res, next) => {
 // 创建作业 —— 教师
 exports.createAssignment = async (req, res, next) => {
   try {
-    const { title, description, course_id, deadline, allowed_formats, max_files, max_size_mb, sample_files, need_grading } = req.body;
+    let { title, description, course_id, deadline, allowed_formats, max_files, max_size_mb, sample_files, need_grading } = req.body;
+    if (title) title = String(title).slice(0, 200); // 列宽 STRING(200)，超长会被 MySQL 严格模式拒绝
     if (!title || !course_id || !deadline) {
       return fail(res, '作业标题、所属课程、截止时间不能为空', 422);
     }
@@ -157,6 +159,10 @@ exports.createAssignment = async (req, res, next) => {
     if (!isValidFutureDate(deadline)) {
       return fail(res, '截止时间必须晚于当前时间', 422);
     }
+    const limits = parseAssignmentLimits(max_files, max_size_mb);
+    if (!limits.ok) return fail(res, limits.msg, 422);
+    const samples = sanitizeSampleFiles(sample_files);
+    if (!samples.ok) return fail(res, samples.msg, 422);
 
     const teacher_id = req.user.role === 'teacher' ? req.user.id : (course.teacher_id);
     const assignment = await Assignment.create({
@@ -164,11 +170,12 @@ exports.createAssignment = async (req, res, next) => {
       description: description || null,
       course_id,
       teacher_id,
+      created_by: req.user.id,
       deadline,
       allowed_formats: allowed_formats || ['pdf', 'doc', 'docx', 'jpg', 'png', 'zip'],
-      max_files: max_files || 5,
-      max_size_mb: max_size_mb || 100,
-      sample_files: sample_files || null,
+      max_files: limits.maxFiles || 5,
+      max_size_mb: limits.maxSizeMb || 100,
+      sample_files: samples.data,
       need_grading: need_grading !== undefined ? (need_grading ? 1 : 0) : 0
     });
     return success(res, assignment, '作业创建成功', 201);
@@ -194,16 +201,20 @@ exports.updateAssignment = async (req, res, next) => {
     if (status !== undefined && status !== null && status !== '' && !['active', 'closed'].includes(status)) {
       return fail(res, '作业状态参数非法', 422);
     }
+    const limits = parseAssignmentLimits(max_files, max_size_mb);
+    if (!limits.ok) return fail(res, limits.msg, 422);
+    const samples = sanitizeSampleFiles(sample_files);
+    if (!samples.ok) return fail(res, samples.msg, 422);
     await assignment.update({
-      title: title !== undefined ? title : assignment.title,
+      title: title !== undefined ? String(title).slice(0, 200) : assignment.title, // STRING(200) 列宽保护
       description: description !== undefined ? description : assignment.description,
       deadline: deadline || assignment.deadline,
       allowed_formats: allowed_formats || assignment.allowed_formats,
-      max_files: max_files || assignment.max_files,
-      max_size_mb: max_size_mb || assignment.max_size_mb,
+      max_files: limits.maxFiles || assignment.max_files,
+      max_size_mb: limits.maxSizeMb || assignment.max_size_mb,
       status: status || assignment.status,
       need_grading: need_grading !== undefined ? (need_grading ? 1 : 0) : assignment.need_grading,
-      sample_files: sample_files !== undefined ? sample_files : assignment.sample_files
+      sample_files: samples.data === null && sample_files === undefined ? assignment.sample_files : samples.data
     });
     return success(res, assignment, '更新成功');
   } catch (err) {

@@ -181,6 +181,17 @@ exports.updateClass = async (req, res, next) => {
     // 课程表冗余了 school_id（教师/学生端按校过滤），班级转校时必须同步，否则课程在新校"消失"
     if (newSchoolId !== oldSchoolId) {
       await Course.update({ school_id: newSchoolId }, { where: { class_id: cls.id } });
+      // 班内学生随班转入新学校：此前不同步，老校学生的 school_id 仍指向旧校，
+      // 课程/作业按校过滤后他们看不到，但提交接口只查班级成员资格不查校，
+      // 形成半迁移脏状态（看得到班却交不了/看不到课）
+      const members = await ClassStudent.findAll({
+        where: { class_id: cls.id },
+        attributes: ['student_id']
+      });
+      const memberIds = members.map(m => m.student_id);
+      if (memberIds.length > 0) {
+        await User.update({ school_id: newSchoolId }, { where: { id: { [Op.in]: memberIds } } });
+      }
     }
     return success(res, cls, '更新成功');
   } catch (err) {
@@ -240,7 +251,8 @@ exports.getClassStudents = async (req, res, next) => {
   }
 };
 
-// 设置/修改学生在班级中的职务（班长/学委） —— 管理员/教师
+// 设置/修改学生在班级中的职务（班长/学委） —— 仅管理员或该班班主任。
+// 此前开放给任意同校教师：任何教师可给学生授班长/学委，间接获得班委的作业代发/催交等权限。
 exports.setStudentPosition = async (req, res, next) => {
   try {
     const { id, studentId } = req.params;
@@ -250,6 +262,9 @@ exports.setStudentPosition = async (req, res, next) => {
     }
     const cls = await Class.findByPk(id);
     if (!cls || foreignSchool(cls, req)) return fail(res, '班级不存在', 404);
+    if (req.user.role !== 'admin' && cls.teacher_id !== req.user.id) {
+      return fail(res, '只有该班级的班主任或管理员可以设置学生职务', 403);
+    }
     const record = await ClassStudent.findOne({
       where: { class_id: id, student_id: studentId }
     });

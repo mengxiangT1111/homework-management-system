@@ -4,7 +4,7 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { Assignment, Submission, SubmissionFile } = require('../models');
+const { Assignment, Submission, SubmissionFile, UploadRecord } = require('../models');
 const { isCOSPath, extractCOSKey } = require('./fileStorage').helpers;
 const { isCOSConfigured, deleteFromCOS } = require('../config/cos');
 
@@ -14,7 +14,9 @@ const { isCOSConfigured, deleteFromCOS } = require('../config/cos');
  * @returns {Object} { cleanedCount, totalSize, sizeFormatted, scannedAssignments, details }
  */
 async function cleanExpiredFiles(retainDays = 30) {
-  const retain = Number(retainDays) || 30;
+  // 防御性下界：负数/0 会使 cutoff 落在未来导致全量误删（路由层已拦截，这里兜底）
+  const retainRaw = Number(retainDays);
+  const retain = (Number.isFinite(retainRaw) && retainRaw >= 1) ? Math.floor(retainRaw) : 30;
   const cutoffDate = new Date();
   cutoffDate.setDate(cutoffDate.getDate() - retain);
 
@@ -52,6 +54,7 @@ async function cleanExpiredFiles(retainDays = 30) {
         totalSize += Number(file.file_size) || 0;
         await deleteFromCOS(extractCOSKey(file.file_path));
         await file.update({ is_cleaned: 1 });
+        await UploadRecord.destroy({ where: { file_path: file.file_path } }).catch(() => {});
         cleanedCount++;
       } else {
         // 删除本地文件（file_path 形如 uploads/202607/xxx.pdf，统一走 UPLOAD_DIR 配置）
@@ -68,6 +71,7 @@ async function cleanExpiredFiles(retainDays = 30) {
         }
         // 物理文件已不存在（历史清理/手动删除）也标记为已清理，记录保留供前端展示
         await file.update({ is_cleaned: 1 });
+        await UploadRecord.destroy({ where: { file_path: file.file_path } }).catch(() => {});
       }
     } catch (e) {
       // 单个文件删除失败不影响整体
@@ -142,6 +146,14 @@ async function cleanAbandonedChunks(maxAgeHours = 48) {
       }
     }
   }
+
+  // 同场清理：过期的分片持有记录（与 merged 缓存同生命周期；
+  // 该表是防秒传认领的持有证明，超期后磁盘分片/缓存均已回收，记录随之失效）
+  try {
+    const { ChunkOwnership } = require('../models');
+    const { Op } = require('sequelize');
+    await ChunkOwnership.destroy({ where: { last_seen: { [Op.lt]: new Date(cutoff) } } });
+  } catch (e) { /* 表未就绪或 DB 抖动不影响磁盘清理 */ }
   return cleaned;
 }
 

@@ -4,6 +4,7 @@ const classController = require('../controllers/classController');
 const classLeaderController = require('../controllers/classLeaderController');
 const { auth, requireRole } = require('../middleware/auth');
 const { requireClassLeader } = require('../middleware/classLeader');
+const { downloadLimiter } = require('../middleware/rateLimit');
 
 router.use(auth);
 
@@ -14,7 +15,7 @@ router.post('/leader/assignment/:id/remind', requireRole('student'), requireClas
 router.post('/leader/assignment', requireRole('student'), requireClassLeader, classLeaderController.createClassAssignment);
 router.put('/leader/assignment/:id', requireRole('student'), requireClassLeader, classLeaderController.classUpdateAssignment);
 router.delete('/leader/assignment/:id', requireRole('student'), requireClassLeader, classLeaderController.classDeleteAssignment);
-router.get('/leader/assignment/:id/download', requireRole('student'), requireClassLeader, classLeaderController.classDownloadAll);
+router.get('/leader/assignment/:id/download', requireRole('student'), requireClassLeader, downloadLimiter, classLeaderController.classDownloadAll);
 
 // 学生：我的班级
 router.get('/my/list', requireRole('student'), classController.myClasses);

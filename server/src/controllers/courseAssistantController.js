@@ -8,6 +8,8 @@ const {
 } = require('../models');
 const { success, fail } = require('../utils/response');
 const { isOverdue, isValidFutureDate } = require('./assignmentController');
+const { sanitizeSampleFiles, parseAssignmentLimits } = require('../utils/assignmentInput');
+const { formatCST } = require('../utils/formatCST');
 
 // 取作业并校验属于课代表负责的课程
 async function loadOwnedAssignment(req, res, next) {
@@ -44,17 +46,22 @@ exports.assistantCreateAssignment = async (req, res, next) => {
     if (!isValidFutureDate(deadline)) {
       return fail(res, '截止时间必须晚于当前时间', 422);
     }
+    const limits = parseAssignmentLimits(max_files, max_size_mb);
+    if (!limits.ok) return fail(res, limits.msg, 422);
+    const samples = sanitizeSampleFiles(sample_files);
+    if (!samples.ok) return fail(res, samples.msg, 422);
 
     const assignment = await Assignment.create({
-      title,
+      title: String(title).slice(0, 200), // STRING(200) 列宽保护
       description: description || null,
       course_id: courseId,
       teacher_id: course.teacher_id || req.user.id,
+      created_by: req.user.id,
       deadline,
       allowed_formats: allowed_formats || ['pdf', 'doc', 'docx', 'jpg', 'png', 'zip'],
-      max_files: max_files || 5,
-      max_size_mb: max_size_mb || 100,
-      sample_files: sample_files || null,
+      max_files: limits.maxFiles || 5,
+      max_size_mb: limits.maxSizeMb || 100,
+      sample_files: samples.data,
       need_grading: need_grading !== undefined ? (need_grading ? 1 : 0) : 0
     });
 
@@ -202,7 +209,7 @@ exports.assistantRemindUnsubmitted = async (req, res, next) => {
     await Notification.bulkCreate(toRemind.map(stu => ({
       user_id: stu.id,
       title: '同学催交：作业提醒',
-      content: `课代表${leaderName}提醒你：课程「${assignment.course.name}」的作业「${assignment.title}」截止 ${new Date(assignment.deadline).toLocaleString('zh-CN')}，请尽快提交！`,
+      content: `课代表${leaderName}提醒你：课程「${assignment.course.name}」的作业「${assignment.title}」截止 ${formatCST(assignment.deadline)}，请尽快提交！`,
       type: 'assignment',
       related_id: assignment.id
     })));
@@ -218,19 +225,26 @@ exports.assistantUpdateAssignment = async (req, res, next) => {
   try {
     const assignment = await loadOwnedAssignment(req, res, next);
     if (!assignment) return;
+    if (assignment.created_by !== req.user.id) {
+      return fail(res, '只能修改自己代发的作业；教师发布的作业请联系任课教师处理', 403);
+    }
     const { title, description, deadline, allowed_formats, max_files, max_size_mb, need_grading, sample_files } = req.body;
     if (deadline !== undefined && deadline !== null && deadline !== '' && !isValidFutureDate(deadline)) {
       return fail(res, '截止时间格式非法或早于当前时间', 422);
     }
+    const limits = parseAssignmentLimits(max_files, max_size_mb);
+    if (!limits.ok) return fail(res, limits.msg, 422);
+    const samples = sanitizeSampleFiles(sample_files);
+    if (!samples.ok) return fail(res, samples.msg, 422);
     await assignment.update({
-      title: title !== undefined ? title : assignment.title,
+      title: title !== undefined ? String(title).slice(0, 200) : assignment.title, // STRING(200) 列宽保护
       description: description !== undefined ? description : assignment.description,
       deadline: deadline || assignment.deadline,
       allowed_formats: allowed_formats || assignment.allowed_formats,
-      max_files: max_files || assignment.max_files,
-      max_size_mb: max_size_mb || assignment.max_size_mb,
+      max_files: limits.maxFiles || assignment.max_files,
+      max_size_mb: limits.maxSizeMb || assignment.max_size_mb,
       need_grading: need_grading !== undefined ? (need_grading ? 1 : 0) : assignment.need_grading,
-      sample_files: sample_files !== undefined ? sample_files : assignment.sample_files
+      sample_files: samples.data === null && sample_files === undefined ? assignment.sample_files : samples.data
     });
     return success(res, assignment, '修改成功');
   } catch (err) {
@@ -238,11 +252,14 @@ exports.assistantUpdateAssignment = async (req, res, next) => {
   }
 };
 
-// 课代表：删除作业（已有提交时不允许）
+// 课代表：删除作业（已有提交时不允许；且只能删除自己代发的）
 exports.assistantDeleteAssignment = async (req, res, next) => {
   try {
     const assignment = await loadOwnedAssignment(req, res, next);
     if (!assignment) return;
+    if (assignment.created_by !== req.user.id) {
+      return fail(res, '只能删除自己代发的作业；教师发布的作业请联系任课教师处理', 403);
+    }
     const subCount = await Submission.count({ where: { assignment_id: assignment.id } });
     if (subCount > 0) {
       return fail(res, `该作业已有 ${subCount} 条提交记录，建议改为"关闭"状态而非删除`, 422);

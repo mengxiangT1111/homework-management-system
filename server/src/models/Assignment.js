@@ -27,6 +27,11 @@ const Assignment = sequelize.define('Assignment', {
     allowNull: false,
     comment: '发布教师ID'
   },
+  created_by: {
+    type: DataTypes.INTEGER.UNSIGNED,
+    allowNull: true,
+    comment: '实际创建者用户ID（区分教师本人/班委代发/课代表代发；NULL=历史数据，视为教师本人发布）'
+  },
   deadline: {
     type: DataTypes.DATE,
     allowNull: false,

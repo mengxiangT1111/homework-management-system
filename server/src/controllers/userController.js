@@ -1,8 +1,16 @@
 const bcrypt = require('bcryptjs');
 const { Op } = require('sequelize');
-const { User, School, Class, Course, ClassStudent, CourseAssistant, Submission, SubmissionFile } = require('../models');
+const path = require('path');
+const fs = require('fs');
+const {
+  sequelize, User, School, Class, Course, ClassStudent, CourseAssistant,
+  Submission, SubmissionFile, Notification, GradingTask, GradingResult, GradingReview,
+  PlagiarismResult, UploadRecord, Assignment
+} = require('../models');
 const { success, fail, paginate, normalizePage } = require('../utils/response');
 const { sanitizeUser } = require('../utils/auth');
+const { isCOSConfigured, deleteFromCOS } = require('../config/cos');
+const { isCOSPath, extractCOSKey } = require('../utils/fileStorage').helpers;
 
 // 用户列表（分页+筛选）—— 管理员
 exports.listUsers = async (req, res, next) => {
@@ -173,28 +181,76 @@ exports.deleteUser = async (req, res, next) => {
     if (user.role === 'admin') {
       return fail(res, '不能删除管理员账号', 422);
     }
-    // 教师名下还有课程/仍任班主任时禁止删除，避免产生悬挂的 course.teacher_id / class.teacher_id
+    // 教师名下还有课程/作业/仍任班主任时禁止删除，避免产生悬挂外键
     if (user.role === 'teacher') {
       const courseCount = await Course.count({ where: { teacher_id: user.id } });
       if (courseCount > 0) {
         return fail(res, `该教师名下还有 ${courseCount} 门课程，请先删除或调整课程`, 422);
+      }
+      // 课程换教师后 assignments.teacher_id 会同步，这里兜底检查
+      // （此前不查作业：课程转移后删除原教师，其历史作业对任何教师都不可管理）
+      const assignmentCount = await Assignment.count({ where: { teacher_id: user.id } });
+      if (assignmentCount > 0) {
+        return fail(res, `该教师名下还有 ${assignmentCount} 个作业，请先在课程管理中转移或删除`, 422);
       }
       const headClassCount = await Class.count({ where: { teacher_id: user.id } });
       if (headClassCount > 0) {
         return fail(res, `该教师仍是 ${headClassCount} 个班级的班主任，请先调整班主任`, 422);
       }
     }
-    // 清理关联数据，避免悬挂记录导致教师端列表/打包下载 500
-    await ClassStudent.destroy({ where: { student_id: user.id } });
-    await CourseAssistant.destroy({ where: { student_id: user.id } });
-    if (user.role === 'student') {
-      const subs = await Submission.findAll({ where: { student_id: user.id }, attributes: ['id'] });
-      if (subs.length > 0) {
-        await SubmissionFile.destroy({ where: { submission_id: { [Op.in]: subs.map(s => s.id) } } });
-        await Submission.destroy({ where: { student_id: user.id } });
+
+    // 级联清理（事务化：此前无事务且遗漏批改/查重/通知，删被批改过的学生
+    // 会因外键约束 500 删不掉，或留下悬挂行导致列表/复核页出错）
+    const UPLOAD_DIR = path.resolve(path.join(__dirname, '../../', process.env.UPLOAD_DIR || 'uploads'));
+    let deletedFilePaths = [];
+    await sequelize.transaction(async (t) => {
+      await ClassStudent.destroy({ where: { student_id: user.id }, transaction: t });
+      await CourseAssistant.destroy({ where: { student_id: user.id }, transaction: t });
+      await Notification.destroy({ where: { user_id: user.id }, transaction: t });
+
+      if (user.role === 'student') {
+        const subs = await Submission.findAll({ where: { student_id: user.id }, attributes: ['id'], transaction: t });
+        if (subs.length > 0) {
+          const subIds = subs.map(s => s.id);
+          // 批改链路：工单 → 结果 → 任务（按外键依赖逆序）
+          await GradingReview.destroy({ where: { submission_id: { [Op.in]: subIds } }, transaction: t });
+          await GradingResult.destroy({ where: { submission_id: { [Op.in]: subIds } }, transaction: t });
+          await GradingTask.destroy({ where: { submission_id: { [Op.in]: subIds } }, transaction: t });
+          // 查重结果：双向引用（本人提交 与 被比对对象）
+          await PlagiarismResult.destroy({
+            where: { [Op.or]: [{ submission_id: { [Op.in]: subIds } }, { compared_with_id: { [Op.in]: subIds } }] },
+            transaction: t
+          });
+          // 物理文件路径先记下，事务提交后统一清理
+          const files = await SubmissionFile.findAll({
+            where: { submission_id: { [Op.in]: subIds } }, attributes: ['file_path'], transaction: t
+          });
+          deletedFilePaths = files.map(f => f.file_path);
+          await SubmissionFile.destroy({ where: { submission_id: { [Op.in]: subIds } }, transaction: t });
+          await Submission.destroy({ where: { student_id: user.id }, transaction: t });
+        }
       }
+      await user.destroy({ transaction: t });
+    });
+
+    // 事务已提交：清理物理文件与上传归属记录（失败不影响删除结果）
+    for (const raw of deletedFilePaths) {
+      try {
+        if (isCOSPath(raw)) {
+          if (isCOSConfigured) {
+            const key = extractCOSKey(raw);
+            if (key && !key.includes('..')) await deleteFromCOS(key);
+          }
+        } else {
+          let rel = raw;
+          if (rel.startsWith('uploads/') || rel.startsWith('uploads\\')) rel = rel.substring(8);
+          const abs = path.join(UPLOAD_DIR, rel);
+          const resolved = path.resolve(abs);
+          if (resolved.startsWith(UPLOAD_DIR + path.sep) && fs.existsSync(resolved)) fs.unlinkSync(resolved);
+        }
+        await UploadRecord.destroy({ where: { file_path: raw } }).catch(() => {});
+      } catch (e) { /* 单文件失败不影响整体 */ }
     }
-    await user.destroy();
     return success(res, null, '用户已删除');
   } catch (err) {
     next(err);

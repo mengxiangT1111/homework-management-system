@@ -45,7 +45,8 @@ export const useAuthStore = defineStore('auth', {
       return { pendingReview: false }
     },
     async fetchProfile() {
-      const user = await get('/api/auth/profile')
+      // silent：启动自动登录等场景静默校验，失败不弹无关 toast（由调用方决定提示）
+      const user = await get('/api/auth/profile', null, { silent: true })
       this.userInfo = user
       uni.setStorageSync('userInfo', user)
       return user

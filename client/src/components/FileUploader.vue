@@ -97,6 +97,11 @@ function handleFileChange(file) {
     ElMessage.warning(`最多上传 ${props.maxFiles} 个文件`)
     return
   }
+  // 同名且同大小的文件视为重复（重复加入会占用 maxFiles 名额并重复上传）
+  if (fileList.some(f => f.file.name === raw.name && f.file.size === raw.size)) {
+    ElMessage.warning(`「${raw.name}」已在列表中，无需重复添加`)
+    return
+  }
   fileList.push({ file: raw, status: 'pending', progress: 0, result: null })
 }
 

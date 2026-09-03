@@ -133,19 +133,24 @@ const previewPath = ref('')
 const previewName = ref('')
 const uploaderRef = ref(null)
 
-function formatTime(t) { return new Date(t).toLocaleString('zh-CN') }
+function formatTime(t) {
+  const d = new Date(t)
+  return isNaN(d.getTime()) ? '—' : d.toLocaleString('zh-CN')
+}
 function formatSize(b) {
   if (b < 1024) return b + ' B'
   if (b < 1048576) return (b / 1024).toFixed(1) + ' KB'
   return (b / 1048576).toFixed(2) + ' MB'
 }
 
-// 样例文件 URL 解析（兼容 cos:// 与本地路径）
-import { fileUrl as resolveFileUrl, isCOS } from '@/utils/fileUrl'
+// 样例文件 URL：需经 /api/files/urls 换取短时效票据（标签无法带 Authorization 头），
+// 作业详情加载后批量解析进 map，模板同步读取
+import { resolveFileUrls, resolveFileUrl, isCOS } from '@/utils/fileUrl'
 import { computed } from 'vue'
 
+const sampleUrlMap = ref({})
 function sampleUrl(url) {
-  return resolveFileUrl(url)
+  return sampleUrlMap.value[url] || ''
 }
 
 // 视频样例放大播放（destroy-on-close 卸载播放器即停止播放）
@@ -177,6 +182,11 @@ async function loadData() {
   assignment.value = res.data
   if (res.data.my_submission) {
     mySubmission.value = res.data.my_submission
+  }
+  // 批量解析样例文件访问 URL（COS 为签名 URL，本地为短时效票据 URL）
+  const samples = res.data.sample_files || []
+  if (samples.length > 0) {
+    sampleUrlMap.value = await resolveFileUrls(samples.map(s => s && s.url).filter(Boolean))
   }
 }
 
@@ -211,11 +221,14 @@ function previewFile(f) {
   previewVisible.value = true
 }
 
-function downloadF(f) {
+async function downloadF(f) {
   if (isCOS(f.file_path)) {
-    window.open(resolveFileUrl(f.file_path), '_blank')
+    const u = await resolveFileUrl(f.file_path)
+    if (u) window.open(u, '_blank')
   } else {
-    downloadFile('/' + f.file_path, f.original_name)
+    // 本地文件必须走带 Authorization 的授权下载接口；
+    // 旧 /uploads 静态路由已下线，走它会在生产拿到 index.html（SPA fallback）
+    downloadFile('/api/files/download?path=' + encodeURIComponent(f.file_path), f.original_name)
   }
 }
 

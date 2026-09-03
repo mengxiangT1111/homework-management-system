@@ -271,7 +271,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Document, Clock, Plus, Delete, InfoFilled } from '@element-plus/icons-vue'
 import { classApi, courseApi, downloadFile } from '@/api'
 import { uploadFileChunked } from '@/utils/upload'
-import { toPickerValue, rateColor } from '@/utils/format'
+import { toPickerValue, rateColor, localToISO } from '@/utils/format'
 
 const positions = ref([])
 const currentClassId = ref(null)
@@ -297,7 +297,10 @@ const sampleVideos = ref([])
 const sampleDocuments = ref([])
 const activeSampleTab = ref('image')
 
-function formatTime(t) { return new Date(t).toLocaleString('zh-CN') }
+function formatTime(t) {
+  const d = new Date(t)
+  return isNaN(d.getTime()) ? '—' : d.toLocaleString('zh-CN')
+}
 
 async function loadPositions() {
   const res = await classApi.myPositions()
@@ -344,16 +347,38 @@ async function openCreateDialog() {
   createForm.deadline = ''
   createForm.description = ''
   createForm.sample_files = []
-  sampleImages.value = []
-  sampleVideos.value = []
-  sampleDocuments.value = []
+  clearSampleLists()
   createVisible.value = true
+}
+
+// 样例类型白名单：文件选择器的 accept 只是过滤，拖拽/改后缀可绕过，这里按扩展名硬校验
+const SAMPLE_EXTS = {
+  image: ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'],
+  video: ['mp4', 'webm', 'mov', 'avi', 'mkv'],
+  document: ['pdf', 'doc', 'docx', 'txt', 'zip', 'xls', 'xlsx', 'ppt', 'pptx']
+}
+function sampleExtOf(name) {
+  return String(name || '').split('.').pop().toLowerCase()
+}
+
+// 释放 blob URL 并清空列表（createObjectURL 不 revoke 会常驻内存，
+// 反复增删样例（含 100MB 视频）内存只增不减）
+function clearSampleLists() {
+  ;[sampleImages, sampleVideos, sampleDocuments].forEach(l => {
+    l.value.forEach(item => { if (item && item.url.startsWith('blob:')) URL.revokeObjectURL(item.url) })
+    l.value = []
+  })
 }
 
 function handleSampleUpload(file, type) {
   const maxSize = type === 'video' ? 100 : 20
   if (file.raw.size > maxSize * 1024 * 1024) {
     ElMessage.warning(`${type === 'video' ? '视频' : '文件'}大小不能超过 ${maxSize}MB`)
+    return
+  }
+  const ext = sampleExtOf(file.name)
+  if (!SAMPLE_EXTS[type].includes(ext)) {
+    ElMessage.warning(`「${file.name}」不是${type === 'image' ? '图片' : type === 'video' ? '视频' : '文档'}文件（支持：${SAMPLE_EXTS[type].join('/')}）`)
     return
   }
   const url = URL.createObjectURL(file.raw)
@@ -364,9 +389,10 @@ function handleSampleUpload(file, type) {
 }
 
 function removeSample(type, idx) {
-  if (type === 'image') sampleImages.value.splice(idx, 1)
-  else if (type === 'video') sampleVideos.value.splice(idx, 1)
-  else if (type === 'document') sampleDocuments.value.splice(idx, 1)
+  const list = type === 'image' ? sampleImages : type === 'video' ? sampleVideos : sampleDocuments
+  const item = list.value[idx]
+  if (item && item.url.startsWith('blob:')) URL.revokeObjectURL(item.url)
+  list.value.splice(idx, 1)
 }
 
 async function submitCreate() {
@@ -388,9 +414,11 @@ async function submitCreate() {
       }
     }
     createForm.sample_files = uploadedSamples
-    await classApi.leaderCreateAssignment(currentClassId.value, createForm)
+    // deadline 为 picker 本地串，转 ISO 提交避免跨时区/UTC 容器漂移
+    await classApi.leaderCreateAssignment(currentClassId.value, { ...createForm, deadline: localToISO(createForm.deadline) })
     ElMessage.success('作业发布成功')
     createVisible.value = false
+    clearSampleLists() // 上传完成，释放本地 blob 预览
     loadData()
   } catch (e) {} finally { creating.value = false }
 }
@@ -432,13 +460,21 @@ function openEdit(a) {
   editForm.description = a.description || ''
   editForm.need_grading = !!a.need_grading
   editForm.sample_files = a.sample_files || []
-  editSampleImages.value = []
-  editSampleDocs.value = []
+  // 打开编辑弹窗前释放上一份新增样例的 blob URL
+  ;[editSampleImages, editSampleDocs].forEach(l => {
+    l.value.forEach(item => { if (item && item.url.startsWith('blob:')) URL.revokeObjectURL(item.url) })
+    l.value = []
+  })
   editVisible.value = true
 }
 
 function handleEditSample(file, type) {
   if (file.raw.size > 20 * 1024 * 1024) { ElMessage.warning('文件大小不能超过 20MB'); return }
+  const ext = sampleExtOf(file.name)
+  if (!SAMPLE_EXTS[type].includes(ext)) {
+    ElMessage.warning(`「${file.name}」不是${type === 'image' ? '图片' : '文档'}文件（支持：${SAMPLE_EXTS[type].join('/')}）`)
+    return
+  }
   const url = URL.createObjectURL(file.raw)
   if (type === 'image') editSampleImages.value.push({ url, file: file.raw, name: file.name })
   else if (type === 'document') editSampleDocs.value.push({ url, file: file.raw, name: file.name })
@@ -446,8 +482,10 @@ function handleEditSample(file, type) {
 }
 
 function removeEditSample(type, idx) {
-  if (type === 'image') editSampleImages.value.splice(idx, 1)
-  else if (type === 'document') editSampleDocs.value.splice(idx, 1)
+  const list = type === 'image' ? editSampleImages : editSampleDocs
+  const item = list.value[idx]
+  if (item && item.url.startsWith('blob:')) URL.revokeObjectURL(item.url)
+  list.value.splice(idx, 1)
 }
 
 async function saveEdit() {
@@ -467,7 +505,8 @@ async function saveEdit() {
     }
     // 合并原有样例和新样例
     editForm.sample_files = [...(editForm.sample_files || []), ...uploadedSamples]
-    await classApi.leaderUpdateAssignment(currentClassId.value, editingAssignment.value.id, editForm)
+    // deadline 为 picker 本地串，转 ISO 提交避免跨时区/UTC 容器漂移
+    await classApi.leaderUpdateAssignment(currentClassId.value, editingAssignment.value.id, { ...editForm, deadline: localToISO(editForm.deadline) })
     ElMessage.success('修改成功')
     editVisible.value = false
     loadData()

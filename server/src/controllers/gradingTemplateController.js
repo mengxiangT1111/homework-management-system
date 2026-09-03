@@ -43,8 +43,13 @@ exports.getDetail = async (req, res, next) => {
   try {
     const template = await templateService.getDetail(req.params.id);
     if (!template) return fail(res, '模板不存在', 404);
-    if (template.teacher_id !== req.user.id && template.status !== 'published') {
+    const isOwner = template.teacher_id === req.user.id;
+    if (!isOwner && template.status !== 'published') {
       return fail(res, '无权查看未发布的模板', 403);
+    }
+    // 已发布模板仅限本校查看（此前可按 ID 跨校枚举读取，模板内容属教学资产）
+    if (!isOwner && req.user.role !== 'admin' && template.school_id !== req.user.school_id) {
+      return fail(res, '无权查看其他学校的模板', 403);
     }
     return success(res, {
       template,

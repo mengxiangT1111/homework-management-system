@@ -244,7 +244,8 @@ const studentScoreList = computed(() => {
 })
 
 function formatTime(t) {
-  return new Date(t).toLocaleString('zh-CN')
+  const d = new Date(t)
+  return isNaN(d.getTime()) ? '—' : d.toLocaleString('zh-CN')
 }
 
 function scoreColor(score) {

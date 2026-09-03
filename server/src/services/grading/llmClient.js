@@ -94,6 +94,11 @@ async function callWithRetry(model, params) {
  * @returns {{content:string, usage:object|null, model:string, latencyMs:number}}
  */
 async function chatCompletion({ messages, temperature = 0.1, maxTokens = 4096, jsonMode = true }) {
+  // 快速失败：AI 接口地址/密钥未配置时立刻报配置错误，
+  // 而不是带占位值打无效请求后报出难排查的远端错误
+  if (!config.apiUrl || !config.apiKey) {
+    throw makeError('AI 批改未配置：请在 .env 中设置 AI_API_URL 与 AI_API_KEY', { retryable: false });
+  }
   const primary = config.model;
   const fallback = config.fallbackModel || null;
   const primaryTripped = Date.now() < breaker.openUntil;

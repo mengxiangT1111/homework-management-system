@@ -6,6 +6,7 @@
 const express = require('express');
 const router = express.Router();
 const { auth, requireRole } = require('../middleware/auth');
+const { plagiarismLimiter } = require('../middleware/rateLimit');
 const plagiarismController = require('../controllers/plagiarismController');
 
 // 所有路由需要登录
@@ -25,10 +26,10 @@ router.post('/task/cancel/:assignmentId', plagiarismController.cancelTask);
 // ===== 参数路由 =====
 
 // 全班一键查重（建任务，后台队列执行）
-router.post('/batch-check/:assignmentId', plagiarismController.batchCheckAll);
+router.post('/batch-check/:assignmentId', plagiarismLimiter, plagiarismController.batchCheckAll);
 
 // 手动触发单份查重检测
-router.post('/check/:assignmentId/:submissionId', plagiarismController.checkPlagiarism);
+router.post('/check/:assignmentId/:submissionId', plagiarismLimiter, plagiarismController.checkPlagiarism);
 
 // 获取某次提交的查重结果
 router.get('/results/:assignmentId/:submissionId', plagiarismController.getPlagiarismResults);

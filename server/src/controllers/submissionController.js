@@ -5,11 +5,12 @@ const { Op } = require('sequelize');
 const archiver = require('archiver');
 const ExcelJS = require('exceljs');
 const {
-  sequelize, Submission, SubmissionFile, Assignment, Course, Class, User, ClassStudent, Notification, GradingResult
+  sequelize, Submission, SubmissionFile, Assignment, Course, Class, User, ClassStudent, Notification, GradingResult, GradingTask, GradingTemplate, UploadRecord
 } = require('../models');
 const { success, fail, paginate, normalizePage } = require('../utils/response');
+const { formatCST } = require('../utils/formatCST');
 const { isOverdue } = require('./assignmentController');
-const { isCOSConfigured, headObject } = require('../config/cos');
+const { isCOSConfigured, headObject, deleteFromCOS } = require('../config/cos');
 
 // 上传目录绝对路径
 const UPLOAD_DIR = path.resolve(path.join(__dirname, '../../', process.env.UPLOAD_DIR || 'uploads'));
@@ -37,6 +38,34 @@ function isPathSafe(relativePath) {
   return absPath === UPLOAD_DIR || absPath.startsWith(UPLOAD_DIR + path.sep);
 }
 
+/** 删除提交绑定的物理文件（本地 + COS）。用于重交覆盖与删除用户时清理，失败不阻断主流程 */
+async function deletePhysicalFiles(filePaths) {
+  for (const raw of filePaths) {
+    try {
+      if (isCOSPath(raw)) {
+        if (!isCOSConfigured) continue;
+        const key = extractCOSKey(raw);
+        if (key && !key.includes('..')) await deleteFromCOS(key);
+      } else {
+        let rel = raw;
+        if (rel.startsWith('uploads/') || rel.startsWith('uploads\\')) rel = rel.substring(8);
+        const abs = path.join(UPLOAD_DIR, rel);
+        if (isPathSafe(raw) && fs.existsSync(abs)) fs.unlinkSync(abs);
+      }
+      await UploadRecord.destroy({ where: { file_path: raw } }).catch(() => {});
+    } catch (e) { /* 单文件失败不影响整体 */ }
+  }
+}
+
+/** 发通知但不让通知失败影响主流程结果（此前通知表瞬断会把已成功的提交报成 500） */
+async function safeCreateNotification(payload) {
+  try {
+    await Notification.create(payload);
+  } catch (e) {
+    console.warn('[通知] 发送失败（不影响主流程）:', e.message);
+  }
+}
+
 // 学生提交作业（创建/更新提交记录，绑定已上传的文件）
 exports.submitAssignment = async (req, res, next) => {
   try {
@@ -49,14 +78,22 @@ exports.submitAssignment = async (req, res, next) => {
     if (!assignment) return fail(res, '作业不存在', 404);
     if (!assignment.course) return fail(res, '作业所属课程已不存在，无法提交', 422);
 
-    // 教师显式关闭的作业禁止提交（此前只查逾期，关闭状态被绕过）
-    if (assignment.status === 'closed') {
-      return fail(res, '作业已关闭，禁止提交', 422);
-    }
+    // 先取现有提交：教师"退回重做"(returned) 的提交豁免逾期/关闭限制。
+    // 此前逾期检查在前，逾期作业被退回后学生永远无法重交，形成死状态。
+    const existing = await Submission.findOne({
+      where: { assignment_id: id, student_id: req.user.id }
+    });
+    const isReturnedRework = !!(existing && existing.status === 'returned');
 
-    // 逾期禁止提交
-    if (isOverdue(assignment)) {
-      return fail(res, '作业已逾期，禁止提交', 422);
+    if (!isReturnedRework) {
+      // 教师显式关闭的作业禁止提交（此前只查逾期，关闭状态被绕过）
+      if (assignment.status === 'closed') {
+        return fail(res, '作业已关闭，禁止提交', 422);
+      }
+      // 逾期禁止提交
+      if (isOverdue(assignment)) {
+        return fail(res, '作业已逾期，禁止提交', 422);
+      }
     }
 
     // 校验学生是否属于该作业所在班级
@@ -134,17 +171,30 @@ exports.submitAssignment = async (req, res, next) => {
       f.file_size = realSize;
     }
 
+    // S6 上传归属校验：file_path 必须是当前用户通过上传接口传上来的，
+    // 防止拿到他人 file_path 后"冒绑"成自己的提交从而获得合法下载权。
+    // （历史文件在启用归属记录前上传、无记录，需重新上传后提交）
+    for (const f of files) {
+      const raw = String(f.file_path);
+      const stripped = raw.replace(/^\/+/, '').replace(/^uploads\//, '');
+      const candidates = [...new Set([raw, stripped, `uploads/${stripped}`])];
+      const owned = await UploadRecord.findOne({
+        where: { user_id: req.user.id, file_path: { [Op.in]: candidates } }
+      });
+      if (!owned) {
+        return fail(res, `文件 ${f.original_name} 不是你上传的（或上传记录缺失），请重新上传后再提交`, 403);
+      }
+    }
+
     // 已被批改（教师/AI 打过分的）提交禁止覆盖重交；教师"退回重做"(returned)除外。
     // need_grading=false 的作业提交即 graded 但从未有人打分（score/graded_by 均为空），允许重交。
-    const existing = await Submission.findOne({
-      where: { assignment_id: id, student_id: req.user.id }
-    });
     if (existing && existing.status !== 'returned' &&
         (existing.score !== null || existing.graded_by !== null)) {
       return fail(res, '该作业已批改，不允许重新提交；如确需重交请联系老师退回', 422);
     }
 
     // 提交主流程事务化：避免"旧文件已删、新文件写入失败"产生零文件的已提交记录
+    const safeRemark = String(remark || '').slice(0, 255); // 列宽 STRING(255)，超长会被 MySQL 拒绝
     const fileRecords = files.map(f => ({
       submission_id: null, // 事务内回填
       original_name: f.original_name,
@@ -155,6 +205,7 @@ exports.submitAssignment = async (req, res, next) => {
     }));
     let submissionId = null;
     let created = false;
+    let oldFilePaths = [];
     await sequelize.transaction(async (t) => {
       const [submission, wasCreated] = await Submission.findOrCreate({
         where: { assignment_id: id, student_id: req.user.id },
@@ -163,7 +214,7 @@ exports.submitAssignment = async (req, res, next) => {
           student_id: req.user.id,
           status: assignment.need_grading ? 'submitted' : 'graded',
           submitted_at: new Date(),
-          remark: remark || null
+          remark: safeRemark || null
         },
         transaction: t
       });
@@ -171,14 +222,20 @@ exports.submitAssignment = async (req, res, next) => {
       submissionId = submission.id;
 
       if (!wasCreated) {
-        // 重新提交：删除旧文件记录
+        // 重新提交：记录旧文件路径（事务提交后再删物理文件），删除旧文件记录
+        const oldFiles = await SubmissionFile.findAll({
+          where: { submission_id: submission.id },
+          attributes: ['file_path'],
+          transaction: t
+        });
+        oldFilePaths = oldFiles.map(f => f.file_path);
         await SubmissionFile.destroy({ where: { submission_id: submission.id }, transaction: t });
         submission.status = assignment.need_grading ? 'submitted' : 'graded';
         submission.score = null;
         submission.comment = null;
         submission.graded_by = null;
         submission.submitted_at = new Date();
-        submission.remark = remark || null;
+        submission.remark = safeRemark || null;
         await submission.save({ transaction: t });
       }
       await SubmissionFile.bulkCreate(
@@ -187,8 +244,13 @@ exports.submitAssignment = async (req, res, next) => {
       );
     });
 
-    // 通知教师有新提交
-    await Notification.create({
+    // 事务已提交：清理被覆盖的旧物理文件与上传归属记录（失败不影响提交结果）
+    if (oldFilePaths.length > 0) {
+      await deletePhysicalFiles(oldFilePaths);
+    }
+
+    // 通知教师有新提交（通知失败不影响提交结果）
+    await safeCreateNotification({
       user_id: assignment.teacher_id,
       title: '新的作业提交',
       content: `${req.user.real_name} 提交了作业「${assignment.title}」`,
@@ -283,7 +345,7 @@ exports.gradeSubmission = async (req, res, next) => {
     }
     let normalizedScore = sub.score;
     if (score !== undefined && score !== null) {
-      // 手动批改上限默认 100；该提交若已有 AI 批改结果，则以模板满分为准
+      // 手动批改上限默认 100；有 AI 结果或该作业用过评分模板时以模板满分为准
       // （评分模板满分允许 1-1000，硬编码 100 会导致 AI 打出 >100 分后教师无法手动修正）。
       // submissions.score 为 DECIMAL(5,2)，上限同时受 999.9 约束
       let maxScore = 100;
@@ -294,6 +356,17 @@ exports.gradeSubmission = async (req, res, next) => {
       });
       if (latestAI && Number(latestAI.full_score) > 100) {
         maxScore = Math.min(Number(latestAI.full_score), 999.9);
+      } else {
+        // 无 AI 结果时回查最近一次批改任务用的模板满分（千分制模板也能手动打分）
+        const lastTask = await GradingTask.findOne({
+          where: { submission_id: sub.id },
+          order: [['id', 'DESC']],
+          attributes: ['template_id']
+        });
+        if (lastTask) {
+          const tpl = await GradingTemplate.findByPk(lastTask.template_id, { attributes: ['full_score'] });
+          if (tpl && Number(tpl.full_score) > 100) maxScore = Math.min(Number(tpl.full_score), 999.9);
+        }
       }
       const s = Number(score);
       if (isNaN(s) || s < 0 || s > maxScore) {
@@ -312,8 +385,16 @@ exports.gradeSubmission = async (req, res, next) => {
       graded_at: new Date()
     });
 
-    // 通知学生成绩已出
-    await Notification.create({
+    // 教师手动批改后，取消该提交仍在排队/执行中的 AI 批改任务：
+    // 否则 worker 轮到时会把 AI 分数覆盖到教师手动成绩上（B2 竞态）。
+    // processTask 在写结果前会复查任务状态，取消后自动放弃回写。
+    await GradingTask.update(
+      { status: 'cancelled', error_msg: '教师已手动批改，任务自动取消' },
+      { where: { submission_id: sub.id, status: ['pending', 'processing'] } }
+    );
+
+    // 通知学生成绩已出（通知失败不影响批改结果）
+    await safeCreateNotification({
       user_id: sub.student_id,
       title: '作业成绩已公布',
       content: `你的作业「${sub.assignment.title}」已被批改，得分：${score !== undefined ? normalizedScore : '未评分'}`,
@@ -378,7 +459,7 @@ exports.remindUnsubmitted = async (req, res, next) => {
     await Notification.bulkCreate(toRemind.map(stu => ({
       user_id: stu.id,
       title: '作业催交通知',
-      content: `你尚未提交作业「${assignment.title}」，截止时间：${new Date(assignment.deadline).toLocaleString('zh-CN')}，请尽快提交！`,
+      content: `你尚未提交作业「${assignment.title}」，截止时间：${formatCST(assignment.deadline)}，请尽快提交！`,
       type: 'assignment',
       related_id: assignment.id
     })));
@@ -491,7 +572,7 @@ exports.exportUnsubmittedExcel = async (req, res, next) => {
     ws.getRow(1).height = 26;
 
     ws.mergeCells('A2:E2');
-    ws.getCell('A2').value = `截止时间：${new Date(assignment.deadline).toLocaleString('zh-CN')}    ｜    总人数：${students.length}    已交：${students.length - unsubmitted.length}    未交：${unsubmitted.length}`;
+    ws.getCell('A2').value = `截止时间：${formatCST(assignment.deadline)}    ｜    总人数：${students.length}    已交：${students.length - unsubmitted.length}    未交：${unsubmitted.length}`;
     ws.getCell('A2').font = { size: 11, color: { argb: 'FF888888' } };
     ws.getCell('A2').alignment = { horizontal: 'center' };
 

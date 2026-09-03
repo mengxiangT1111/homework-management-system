@@ -7,7 +7,7 @@
 
 const { Op } = require('sequelize');
 const {
-  Submission, SubmissionFile, Assignment, User, PlagiarismResult, PlagiarismTask
+  sequelize, Submission, SubmissionFile, Assignment, User, PlagiarismResult, PlagiarismTask
 } = require('../models');
 const { success, fail } = require('../utils/response');
 const detectionService = require('../services/detectionService');
@@ -174,9 +174,18 @@ exports.checkPlagiarism = async (req, res, next) => {
 
   } catch (error) {
     try {
+      // 只把本轮尚在处理中的行标记为 error：此前无条件按 submission+assignment
+      // 全量更新，会把本轮已成功落库（done）的结果一并改写成 error，
+      // 学生该提交的全部历史成功比对随之丢失
       await PlagiarismResult.update(
-        { status: 'error', error_message: error.message, checked_at: new Date() },
-        { where: { submission_id: req.params.submissionId, assignment_id: req.params.assignmentId } }
+        { status: 'error', error_message: String(error.message || '').slice(0, 500), checked_at: new Date() },
+        {
+          where: {
+            submission_id: req.params.submissionId,
+            assignment_id: req.params.assignmentId,
+            status: ['pending', 'processing']
+          }
+        }
       );
     } catch (e) {}
     next(error);
@@ -196,37 +205,57 @@ exports.batchCheckAll = async (req, res, next) => {
     const assignment = await assertAssignmentOwner(req, res, assignmentId);
     if (!assignment) return;
 
-    // 2. 已有进行中的任务直接返回（幂等，避免重复建任务重复计算）
-    const running = await PlagiarismTask.findOne({
-      where: { assignment_id: assignmentId, status: ['pending', 'processing'] },
-      order: [['id', 'DESC']]
+    // 2-3. 检查进行中任务 + 建任务：用 MySQL 命名锁串行化（同一事务同一连接）。
+    //     此前"先查后插"无原子性，双击/并发会建出两个任务把整班比对算两遍
+    const task = await sequelize.transaction(async (trx) => {
+      const lockName = `plag_batch:${assignmentId}`;
+      const [lockRow] = await sequelize.query(
+        'SELECT GET_LOCK(:lock, 5) AS got', { replacements: { lock: lockName }, transaction: trx }
+      );
+      const got = lockRow && lockRow[0] && lockRow[0].got;
+      if (got !== 1) {
+        throw Object.assign(new Error('查重任务创建中，请勿重复提交'), { status: 429 });
+      }
+      try {
+        const running = await PlagiarismTask.findOne({
+          where: { assignment_id: assignmentId, status: ['pending', 'processing'] },
+          order: [['id', 'DESC']],
+          transaction: trx
+        });
+        if (running) return { existing: running };
+
+        // 3. 检查服务健康（提前给教师明确提示，避免建了任务全失败）
+        const isHealthy = await detectionService.healthCheck();
+        if (!isHealthy) {
+          throw Object.assign(new Error('查重检测服务未启动，请联系管理员'), { status: 503 });
+        }
+
+        // 4. 统计可查重提交数
+        const entries = await plagiarismService.loadValidSubmissionEntries(assignmentId);
+        const n = entries.length;
+        if (n < 2) return { insufficient: n };
+
+        // 5. 建任务，后台队列执行（C(n,2) 组合去重 + 双向写入）
+        return {
+          created: await PlagiarismTask.create({
+            assignment_id: parseInt(assignmentId),
+            created_by: req.user.id,
+            total_submissions: n,
+            total_pairs: (n * (n - 1)) / 2
+          }, { transaction: trx })
+        };
+      } finally {
+        await sequelize.query('SELECT RELEASE_LOCK(:lock)', { replacements: { lock: lockName }, transaction: trx }).catch(() => {});
+      }
     });
-    if (running) {
-      return success(res, { task: formatTask(running), alreadyRunning: true }, '该作业已有查重任务在进行中');
+
+    if (task.existing) {
+      return success(res, { task: formatTask(task.existing), alreadyRunning: true }, '该作业已有查重任务在进行中');
     }
-
-    // 3. 检查服务健康（提前给教师明确提示，避免建了任务全失败）
-    const isHealthy = await detectionService.healthCheck();
-    if (!isHealthy) {
-      return fail(res, '查重检测服务未启动，请联系管理员', 503);
+    if (task.insufficient !== undefined) {
+      return success(res, { total: task.insufficient, results: [] }, '提交人数不足，至少需要2人才能查重');
     }
-
-    // 4. 统计可查重提交数
-    const entries = await plagiarismService.loadValidSubmissionEntries(assignmentId);
-    const n = entries.length;
-    if (n < 2) {
-      return success(res, { total: n, results: [] }, '提交人数不足，至少需要2人才能查重');
-    }
-
-    // 5. 建任务，后台队列执行（C(n,2) 组合去重 + 双向写入）
-    const task = await PlagiarismTask.create({
-      assignment_id: parseInt(assignmentId),
-      created_by: req.user.id,
-      total_submissions: n,
-      total_pairs: (n * (n - 1)) / 2
-    });
-
-    return success(res, { task: formatTask(task) }, `查重任务已创建：${n} 份提交，共 ${(n * (n - 1)) / 2} 对比对`);
+    return success(res, { task: formatTask(task.created) }, `查重任务已创建：${task.created.total_submissions} 份提交，共 ${task.created.total_pairs} 对比对`);
 
   } catch (error) {
     next(error);

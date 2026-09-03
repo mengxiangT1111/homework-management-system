@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const submissionController = require('../controllers/submissionController');
 const { auth, requireRole } = require('../middleware/auth');
+const { downloadLimiter } = require('../middleware/rateLimit');
 
 router.use(auth);
 
@@ -19,8 +20,8 @@ router.put('/:id/grade', requireRole('teacher', 'admin'), submissionController.g
 // 教师：催交（标记未交）
 router.post('/assignment/:id/remind', requireRole('teacher', 'admin'), submissionController.remindUnsubmitted);
 // 教师：打包下载全部作业
-router.get('/assignment/:id/download', requireRole('teacher', 'admin'), submissionController.downloadAll);
+router.get('/assignment/:id/download', requireRole('teacher', 'admin'), downloadLimiter, submissionController.downloadAll);
 // 教师：导出未交名单 Excel
-router.get('/assignment/:id/export', requireRole('teacher', 'admin'), submissionController.exportUnsubmittedExcel);
+router.get('/assignment/:id/export', requireRole('teacher', 'admin'), downloadLimiter, submissionController.exportUnsubmittedExcel);
 
 module.exports = router;

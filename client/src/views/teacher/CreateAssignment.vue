@@ -32,9 +32,8 @@
         </el-form-item>
 
         <el-form-item label="单文件上限">
-          <el-input v-model="form.max_size_mb" placeholder="MB" style="width:120px">
-            <template #append>MB</template>
-          </el-input>
+          <el-input-number v-model="form.max_size_mb" :min="1" :max="2000" :step="10" style="width:140px" />
+          <span style="margin-left:8px;color:var(--text-light)">MB</span>
         </el-form-item>
 
         <el-form-item label="是否需要批改">
@@ -151,12 +150,13 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Plus, Delete, Document, InfoFilled } from '@element-plus/icons-vue'
 import { courseApi, assignmentApi, uploadApi } from '@/api'
 import { uploadFileChunked } from '@/utils/upload'
+import { localToISO } from '@/utils/format'
 
 const router = useRouter()
 const formRef = ref()
@@ -207,10 +207,19 @@ function handleSampleUpload(file, type) {
 }
 
 function removeSample(type, idx) {
-  if (type === 'image') sampleImages.value.splice(idx, 1)
-  else if (type === 'video') sampleVideos.value.splice(idx, 1)
-  else if (type === 'document') sampleDocuments.value.splice(idx, 1)
+  const list = type === 'image' ? sampleImages : type === 'video' ? sampleVideos : sampleDocuments
+  const item = list.value[idx]
+  // 释放 blob URL（不 revoke 内存常驻，视频样例可达 100MB）
+  if (item && item.url.startsWith('blob:')) URL.revokeObjectURL(item.url)
+  list.value.splice(idx, 1)
 }
+
+// 离开页面时释放所有未提交样例的 blob URL（直接取消/跳转的场景）
+onUnmounted(() => {
+  ;[sampleImages, sampleVideos, sampleDocuments].forEach(l => {
+    l.value.forEach(item => { if (item && item.url.startsWith('blob:')) URL.revokeObjectURL(item.url) })
+  })
+})
 
 async function loadCourses() {
   const res = await courseApi.myTeaching()
@@ -242,7 +251,9 @@ async function submit() {
         }
       }
       form.sample_files = uploadedSamples
-      await assignmentApi.create(form)
+      // deadline 由 picker 的 value-format 产生（无时区的本地串），转成带时区 ISO
+      // 再提交：服务端按绝对时间落库，跨时区浏览器设置/查看不再漂移
+      await assignmentApi.create({ ...form, deadline: localToISO(form.deadline) })
       ElMessage.success('作业发布成功')
       router.push('/teacher/assignments')
     } catch (e) {

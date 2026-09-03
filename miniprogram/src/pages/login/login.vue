@@ -1,5 +1,12 @@
 <template>
   <view class="auth-page">
+    <!-- 已登录用户冷启动：显示进入中状态（代替可交互的登录表单闪现） -->
+    <view v-if="autoEntering" class="auto-mask">
+      <image class="auto-logo" src="/static/logo.png" mode="aspectFill" />
+      <text class="auto-text">正在自动进入…</text>
+    </view>
+
+    <template v-else>
     <!-- 品牌头（对齐网页端左侧深翠绿品牌面板） -->
     <view class="brand-head">
       <view class="brand-grid"></view>
@@ -74,12 +81,13 @@
     </view>
 
     <text class="auth-copyright">信衡 XINHENG · 让每一分都可信</text>
+    </template>
   </view>
 </template>
 
 <script setup>
 import { ref, computed } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { onShow, onLoad } from '@dcloudio/uni-app'
 import { get } from '../../utils/request'
 import { useAuthStore } from '../../stores/auth'
 
@@ -91,8 +99,26 @@ const password = ref('')
 const loading = ref(false)
 // 纯视图状态：聚焦字段
 const focusedField = ref('')
+// 已登录用户冷启动的"自动进入"状态（登录页是入口页，自动登录由这里接管）
+const autoEntering = ref(false)
 
 const schoolNames = computed(() => schools.value.map((s) => s.name))
+
+onLoad(() => {
+  if (!auth.token) return
+  autoEntering.value = true
+  // 静默校验 token：有效直接进首页；失败（网络抖动等非 401 场景）回退到登录表单。
+  // token 失效的 401 由请求层统一处理（清登录态并回登录页）。
+  auth
+    .fetchProfile()
+    .then(() => {
+      uni.reLaunch({ url: '/pages/index/index' })
+    })
+    .catch(() => {
+      autoEntering.value = false
+      uni.showToast({ title: '自动登录失败，请手动登录', icon: 'none' })
+    })
+})
 
 onShow(() => {
   loadSchools()
@@ -130,7 +156,9 @@ async function handleLogin() {
     uni.setStorageSync('lastSchoolId', school.id)
     uni.reLaunch({ url: '/pages/index/index' })
   } catch (e) {
-    // 错误提示已在请求层/登录逻辑内处理
+    // 账号/密码错误等请求层已 toast 服务端文案；这里兜底展示
+    // 登录逻辑本地抛出的提示（如管理员限登小程序）
+    if (e && e.noState) uni.showToast({ title: e.message, icon: 'none' })
   } finally {
     loading.value = false
   }
@@ -145,6 +173,29 @@ function goRegister() {
 .auth-page {
   min-height: 100vh;
   background: #f7faf8;
+}
+
+/* ---- 已登录冷启动的"自动进入"遮罩（替代可交互登录表单的闪现） ---- */
+.auto-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 99;
+  background: #f7faf8;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28rpx;
+}
+.auto-logo {
+  width: 128rpx;
+  height: 128rpx;
+  border-radius: 28rpx;
+  box-shadow: 0 16rpx 40rpx -12rpx rgba(0, 225, 143, 0.45);
+}
+.auto-text {
+  font-size: 28rpx;
+  color: #5f6f68;
 }
 
 /* ---- 品牌头：对齐网页端 .auth-brand 深翠绿面板 ---- */

@@ -156,16 +156,18 @@ function scoreColor(score) {
   return '#67c23a'
 }
 
+// 竞态守卫：快速切换不同学生的详情弹窗时，旧响应晚到不得覆盖新数据
+// （弹窗标题是 B、表格显示 A 的查重结果，会误导教师判抄袭）
+let loadSeq = 0
+
 async function loadResults() {
-  if (!props.submissionId) {
-    console.log('no submissionId')
-    return
-  }
+  if (!props.submissionId) return
+  const seq = ++loadSeq
   loading.value = true
   error.value = ''
   try {
     const res = await plagiarismApi.results(props.assignmentId, props.submissionId)
-    console.log('loadResults response:', res.data)
+    if (seq !== loadSeq) return // 已被更新的请求取代，丢弃本次结果
     results.value = (res.data?.results || []).map(r => ({
       ...r,
       similarityScore: parseFloat(r.similarityScore) || 0,
@@ -174,29 +176,21 @@ async function loadResults() {
       textSimilarity: parseFloat(r.textSimilarity) || 0,
       orbMatchCount: r.orbMatchCount || 0
     }))
-    console.log('results after map:', results.value.length, 'items')
     // 等待DOM更新后渲染图表
     setTimeout(() => {
-      renderRadarChart()
+      if (seq === loadSeq) renderRadarChart()
     }, 100)
   } catch (e) {
-    error.value = e.message || '加载失败'
-    console.error('loadResults error:', e)
+    if (seq === loadSeq) error.value = e.message || '加载失败'
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
 }
 
 function renderRadarChart() {
-  if (!radarChartRef.value) {
-    console.log('radarChartRef not ready')
-    return
-  }
-  if (results.value.length === 0) {
-    console.log('results is empty')
-    return
-  }
-  
+  if (!radarChartRef.value) return
+  if (results.value.length === 0) return
+
   if (radarChart) {
     radarChart.dispose()
   }
@@ -242,7 +236,6 @@ function renderRadarChart() {
   }
 
   radarChart.setOption(option)
-  console.log('radar chart rendered with', topResults.length, 'results')
 }
 
 async function recheck() {

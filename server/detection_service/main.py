@@ -37,10 +37,19 @@ app.add_middleware(
 )
 
 # ===== 服务间鉴权 =====
-# 与 Node 侧共享同一环境变量 DETECTION_API_TOKEN；未配置时使用默认值（仅限本机回环可达）
-API_TOKEN = os.environ.get("DETECTION_API_TOKEN", "detection-dev-token")
-if API_TOKEN == "detection-dev-token":
-    logger.warning("DETECTION_API_TOKEN 未设置，使用默认开发 token，生产环境务必配置强随机值")
+# 与 Node 侧共享同一环境变量 DETECTION_API_TOKEN。
+# 未配置时生成进程级随机 token：源码里不再存在任何可预测的默认值，
+# 未显式配置的部署对所有调用方一律 401（Node 侧同样要求显式配置后才能连通）。
+_env_token = os.environ.get("DETECTION_API_TOKEN", "").strip()
+if _env_token:
+    API_TOKEN = _env_token
+else:
+    import secrets
+    API_TOKEN = secrets.token_urlsafe(32)
+    logger.warning(
+        "DETECTION_API_TOKEN 未设置：已生成进程级随机 token，"
+        "所有调用方（含 Node 后端）将被拒绝，直到两侧配置相同的 DETECTION_API_TOKEN"
+    )
 
 
 @app.middleware("http")

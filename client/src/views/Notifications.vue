@@ -58,7 +58,7 @@ function typeIcon(type) {
 
 function formatTime(t) {
   const d = new Date(t)
-  return d.toLocaleString('zh-CN')
+  return isNaN(d.getTime()) ? '—' : d.toLocaleString('zh-CN')
 }
 
 async function loadData() {
@@ -97,6 +97,8 @@ async function removeOne(item) {
     await ElMessageBox.confirm('确定删除该通知？', '提示', { type: 'warning' })
     await notifStore.remove(item.id)
     ElMessage.success('已删除')
+    // 删除当前页最后一条时回退一页，否则请求原页码返回空列表、页面假空白
+    if (list.value.length === 1 && page.value > 1) page.value -= 1
     loadData()
   } catch (e) {}
 }

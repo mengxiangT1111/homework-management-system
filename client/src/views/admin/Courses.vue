@@ -9,16 +9,16 @@
 
     <div class="card-section">
       <div class="filter-bar">
-        <el-select v-model="schoolFilter" placeholder="全部学校" clearable style="width:180px" @change="loadData">
+        <el-select v-model="schoolFilter" placeholder="全部学校" clearable style="width:180px" @change="search">
           <el-option v-for="s in schools" :key="s.id" :label="s.name" :value="s.id" />
         </el-select>
-        <el-select v-model="classFilter" placeholder="按班级筛选" clearable style="width:180px" @change="loadData">
+        <el-select v-model="classFilter" placeholder="按班级筛选" clearable style="width:180px" @change="search">
           <el-option v-for="c in classes" :key="c.id" :label="c.name" :value="c.id" />
         </el-select>
-        <el-input v-model="keyword" placeholder="搜索课程名" clearable style="width:220px" @keyup.enter="loadData" @clear="loadData">
+        <el-input v-model="keyword" placeholder="搜索课程名" clearable style="width:220px" @keyup.enter="search" @clear="search">
           <template #prefix><el-icon><Search /></el-icon></template>
         </el-input>
-        <el-button type="primary" @click="loadData">搜索</el-button>
+        <el-button type="primary" @click="search">搜索</el-button>
       </div>
 
       <el-table v-loading="loading" :data="list" stripe>
@@ -123,6 +123,8 @@ async function loadData() {
   } finally { loading.value = false }
 }
 function handlePage(p) { page.value = p; loadData() }
+// 筛选/搜索时重置到第一页：停留在超出结果页数的空页会误以为筛选无结果
+function search() { page.value = 1; loadData() }
 
 function onSchoolChange() {
   form.class_id = null
@@ -168,9 +170,18 @@ async function removeCourse(row) {
 
 onMounted(async () => {
   loadData()
-  const [c, t, s] = await Promise.all([classApi.all(), userApi.teachers(), schoolApi.all()])
-  classes.value = c.data
-  teachers.value = t.data
-  schools.value = s.data
+  // 下拉数据加载失败时给出提示并保持空列表（此前 Promise.all 无 catch，
+  // 任一失败即 unhandled rejection，弹窗里班级/教师/学校选项全空且无提示）
+  try {
+    const [c, t, s] = await Promise.all([classApi.all(), userApi.teachers(), schoolApi.all()])
+    classes.value = c.data || []
+    teachers.value = t.data || []
+    schools.value = s.data || []
+  } catch (e) {
+    classes.value = []
+    teachers.value = []
+    schools.value = []
+    ElMessage.error('基础数据（班级/教师/学校）加载失败，请刷新重试')
+  }
 })
 </script>

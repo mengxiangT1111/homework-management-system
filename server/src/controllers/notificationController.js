@@ -1,4 +1,5 @@
 const { Op } = require('sequelize');
+const { formatCST } = require('../utils/formatCST');
 const { Notification, Assignment, Course, ClassStudent, Submission } = require('../models');
 const { success, fail, paginate, normalizePage } = require('../utils/response');
 
@@ -8,7 +9,13 @@ exports.myNotifications = async (req, res, next) => {
     const { is_read, type } = req.query;
     const { page, pageSize } = normalizePage(req.query);
     const where = { user_id: req.user.id };
-    if (is_read !== undefined && is_read !== '') where.is_read = Number(is_read);
+    // is_read 只接受 '0'/'1'：此前 Number('true') === NaN 直接进 where，
+    // Sequelize 生成非法条件报 500
+    if (is_read !== undefined && is_read !== '') {
+      if (is_read === '0' || is_read === 0) where.is_read = 0;
+      else if (is_read === '1' || is_read === 1) where.is_read = 1;
+      else return fail(res, 'is_read 参数只接受 0 或 1', 422);
+    }
     if (type) where.type = type;
 
     const { rows, count } = await Notification.findAndCountAll({
@@ -69,6 +76,11 @@ exports.deleteNotification = async (req, res, next) => {
       where: { id: req.params.id, user_id: req.user.id }
     });
     if (!n) return fail(res, '通知不存在', 404);
+    // 系统截止提醒不可删：定时任务靠"该通知行是否存在"去重，
+    // 删掉后下一轮扫描会重新生成，循环往复
+    if (n.type === 'deadline') {
+      return fail(res, '截止提醒为系统去重依据，不支持删除（可标记已读）', 422);
+    }
     await n.destroy();
     return success(res, null, '已删除');
   } catch (err) {
@@ -130,7 +142,7 @@ exports.generateDeadlineReminders = async function () {
         toCreate.push({
           user_id: studentId,
           title: '作业即将截止',
-          content: `作业「${a.title}」将于 ${new Date(a.deadline).toLocaleString('zh-CN')} 截止，请尽快提交！`,
+          content: `作业「${a.title}」将于 ${formatCST(a.deadline)} 截止，请尽快提交！`,
           type: 'deadline',
           related_id: a.id
         });

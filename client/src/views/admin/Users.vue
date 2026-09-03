@@ -138,7 +138,10 @@ const currentUser = ref(null)
 const newPwd = ref('')
 const resetting = ref(false)
 
-function formatTime(t) { return new Date(t).toLocaleString('zh-CN') }
+function formatTime(t) {
+  const d = new Date(t)
+  return isNaN(d.getTime()) ? '—' : d.toLocaleString('zh-CN')
+}
 const roleText = (r) => statusOf(ROLE, r).text
 const roleType = (r) => statusOf(ROLE, r).type
 

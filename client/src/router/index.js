@@ -74,6 +74,13 @@ const router = createRouter({
 // 路由守卫
 router.beforeEach((to, from, next) => {
   const auth = useAuthStore()
+  // token 在但 user 缺失/损坏（角色解析为空）时强制清登录态：
+  // 否则 guest 页(→/角色) 与业务页(→/login) 会互相踢皮球形成无限重定向白屏，
+  // 用户必须手清 localStorage 才能恢复
+  if (auth.isLoggedIn && !auth.role) {
+    auth.logout()
+    return next('/login')
+  }
   if (to.meta.guest) {
     // 已登录用户访问登录页，跳转到对应首页
     if (auth.isLoggedIn) {

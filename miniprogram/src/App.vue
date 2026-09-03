@@ -4,15 +4,11 @@ import { useAuthStore } from './stores/auth'
 
 onLaunch(() => {
   const auth = useAuthStore()
-  if (auth.token) {
-    // 启动即校验 token：有效直接进首页（自动登录），失效则清态留在登录页
-    auth
-      .fetchProfile()
-      .then(() => {
-        uni.reLaunch({ url: '/pages/index/index' })
-      })
-      .catch(() => {})
-  }
+  // 自动登录由入口页（login）接管：登录页能据此展示"正在自动进入"状态，
+  // 避免已登录用户冷启动先看到可交互的登录表单闪现。
+  // 这里只负责一件事：请求层 401 清 Storage 后，同步清 pinia 内存登录态
+  // （reLaunch 前的窗口期内页面不会再读到过期登录态）。
+  uni.$on('auth:unauthorized', () => auth.logout())
 })
 </script>
 

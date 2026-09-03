@@ -93,8 +93,9 @@ onShow(() => {
 
 async function loadAll() {
   loading.value = true
-  expandedKey.value = ''
-  unsub.value = null
+  // 保留当前展开项：刷新后若该作业仍存在，同步刷新它的未交名单，
+  // 不再一刀切收起（切 tab 回来不必重新点开）
+  const prevKey = expandedKey.value
   try {
     const [positions, ships] = await Promise.all([
       get('/api/classes/my/positions', null, { silent: true }).catch(() => []),
@@ -129,6 +130,35 @@ async function loadAll() {
   } finally {
     loading.value = false
   }
+  await restoreExpanded(prevKey)
+}
+
+// 刷新后恢复展开项：作业仍存在则重拉未交名单，已被删除则收起
+async function restoreExpanded(prevKey) {
+  if (!prevKey) return
+  const [secKey, aId] = prevKey.split(':')
+  const sec = sections.value.find((s) => s.key === secKey)
+  const a = sec && sec.assignments.find((x) => String(x.id) === String(aId))
+  if (!sec || !a) {
+    expandedKey.value = ''
+    unsub.value = null
+    return
+  }
+  await fetchUnsub(sec, a)
+}
+
+async function fetchUnsub(sec, a) {
+  loadingUnsub.value = true
+  try {
+    unsub.value =
+      sec.type === 'leader'
+        ? await get(`/api/classes/leader/assignment/${a.id}/unsubmitted`, { class_id: sec.classId })
+        : await get(`/api/courses/assistant/assignment/${a.id}/unsubmitted`, { course_id: sec.courseId })
+  } catch (e) {
+    unsub.value = null
+  } finally {
+    loadingUnsub.value = false
+  }
 }
 
 async function loadSection(i) {
@@ -157,17 +187,7 @@ async function toggle(sec, a) {
   }
   expandedKey.value = key
   unsub.value = null
-  loadingUnsub.value = true
-  try {
-    unsub.value =
-      sec.type === 'leader'
-        ? await get(`/api/classes/leader/assignment/${a.id}/unsubmitted`, { class_id: sec.classId })
-        : await get(`/api/courses/assistant/assignment/${a.id}/unsubmitted`, { course_id: sec.courseId })
-  } catch (e) {
-    unsub.value = null
-  } finally {
-    loadingUnsub.value = false
-  }
+  await fetchUnsub(sec, a)
 }
 
 function posText(p) {

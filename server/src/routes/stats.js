@@ -7,6 +7,27 @@ const { success, fail } = require('../utils/response');
 
 router.use(auth);
 
+// 清理保留天数解析：负数/0 会让 cutoff 落在未来，把全校作业文件全量命中，
+// 属不可恢复的破坏性操作，必须校验范围（1-3650 天）
+function parseRetainDays(raw) {
+  if (raw === undefined || raw === null || raw === '') return undefined; // 未提供，走默认
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 1 || n > 3650) return null; // 提供了但非法
+  return Math.floor(n);
+}
+
+// 显式传参但非法 → 422 拒绝；未传参 → 环境变量（同样校验）→ 默认 30
+function resolveRetainDays(raw, res) {
+  const fromQuery = parseRetainDays(raw);
+  if (fromQuery === null) {
+    fail(res, '清理天数需为 1-3650 之间的整数', 422);
+    return null;
+  }
+  if (fromQuery !== undefined) return fromQuery;
+  const fromEnv = parseRetainDays(process.env.FILE_RETAIN_DAYS);
+  return fromEnv === null || fromEnv === undefined ? 30 : fromEnv;
+}
+
 // 管理员全局统计
 router.get('/overview', requireRole('admin'), statsController.overview);
 // 各作业提交率（图表）
@@ -19,7 +40,8 @@ router.get('/student', requireRole('student'), statsController.studentOverview);
 // 文件清理预览（不执行，只统计）
 router.get('/cleanup/preview', requireRole('admin'), async (req, res, next) => {
   try {
-    const retainDays = Number(req.query.days) || Number(process.env.FILE_RETAIN_DAYS) || 30;
+    const retainDays = resolveRetainDays(req.query.days, res);
+    if (retainDays === null) return;
     const { Assignment, Submission, SubmissionFile } = require('../models');
     const { Op } = require('sequelize');
     const cutoffDate = new Date();
@@ -57,7 +79,8 @@ router.get('/cleanup/preview', requireRole('admin'), async (req, res, next) => {
 // 执行文件清理
 router.post('/cleanup/run', requireRole('admin'), async (req, res, next) => {
   try {
-    const retainDays = Number(req.body.days) || Number(process.env.FILE_RETAIN_DAYS) || 30;
+    const retainDays = resolveRetainDays(req.body.days, res);
+    if (retainDays === null) return;
     const result = await cleanExpiredFiles(retainDays);
     return success(res, result, `清理完成，共删除 ${result.cleanedCount} 个文件`);
   } catch (err) {

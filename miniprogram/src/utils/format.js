@@ -68,8 +68,9 @@ export function remainingText(deadline) {
   return { text: `剩 ${hours} 小时 ${mins} 分`, overdue: false, urgent: true }
 }
 
-/** 置信度 0-1 → 百分比文案 */
+/** 置信度 0-1 → 百分比文案（无结果显示 '-'，不能走 Number：Number(null)===0 会误显 0%） */
 export function formatConfidence(v) {
+  if (v === null || v === undefined || v === '') return '-'
   const n = Number(v)
   if (isNaN(n)) return '-'
   return Math.round(n * 100) + '%'

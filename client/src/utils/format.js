@@ -19,6 +19,15 @@ export function toPickerValue(iso) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:00`
 }
 
+// 提交用的本地时间串（picker value-format 产物，无时区）转带时区 ISO。
+// 浏览器按本地时区解析、服务端按绝对时间落库；
+// 若直接提交本地串，服务端会按服务器时区解读，跨时区（或生产容器为 UTC）会整体漂移。
+export function localToISO(localStr) {
+  if (!localStr) return localStr
+  const d = new Date(String(localStr).replace(' ', 'T'))
+  return isNaN(d.getTime()) ? localStr : d.toISOString()
+}
+
 // 提交率进度条统一配色：≥80 达标（深薄荷）/ ≥50 偏低（琥珀）/ <50 危险（红）
 export function rateColor(r) {
   if (r >= 80) return '#3da884'

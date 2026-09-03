@@ -9,12 +9,15 @@ const { Sequelize } = require('sequelize');
 const { sequelize, GradingTask } = require('../../models');
 const gradingService = require('./grading.service');
 const config = require('../../config/ai');
+const { registerShutdownHandler } = require('../../utils/processShutdown');
 
 const WORKER_ID = `${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
 const CLAIM_BATCH = 5;        // 单轮最多抢占任务数
 // 僵死任务判定阈值。须大于任务最坏合法执行时长（LLM 最坏约 12 分钟），
 // 否则长任务会被误回收导致双跑/结果互相覆盖；可用环境变量覆盖。
-const STALLED_MINUTES = Number(process.env.GRADING_STALLED_MINUTES || 30);
+// 环境变量填了非法值时回退默认（此前非数字拼进 SQL 会让回收器每分钟报语法错误）
+const _stalledEnv = Number(process.env.GRADING_STALLED_MINUTES);
+const STALLED_MINUTES = Number.isFinite(_stalledEnv) && _stalledEnv > 0 ? _stalledEnv : 30;
 let running = false;
 let reaperTimer = null;
 const activeTasks = new Set(); // 处理中的任务ID（并发控制）
@@ -78,10 +81,27 @@ async function reapStalled() {
            error_msg = '任务执行超时（worker异常），自动回收',
            locked_by = NULL, locked_at = NULL
        WHERE status = 'processing'
-         AND locked_at < DATE_SUB(NOW(), INTERVAL ${STALLED_MINUTES} MINUTE)`
+         AND locked_at < DATE_SUB(NOW(), INTERVAL :minutes MINUTE)`,
+    { replacements: { minutes: STALLED_MINUTES } }
   );
   if (result.affectedRows > 0) {
     console.warn(`[批改队列] 回收 ${result.affectedRows} 个僵死任务`);
+  }
+}
+
+/** 启动恢复：进程重启后不会再有 worker 持有 processing 任务，直接重置入队。
+ *  此前不恢复，崩溃时在途的任务要等僵死阈值（默认 30 分钟）才被回收重跑，
+ *  前端轮询长时间卡在 processing。单实例部署下安全（无其他进程持有锁）。 */
+async function recoverProcessingAtBoot() {
+  const [result] = await sequelize.query(
+    `UPDATE grading_tasks
+       SET status = IF(attempt >= max_attempts, 'failed', 'pending'),
+           error_msg = '服务重启，任务自动恢复',
+           locked_by = NULL, locked_at = NULL
+       WHERE status = 'processing'`
+  );
+  if (result.affectedRows > 0) {
+    console.warn(`[批改队列] 启动恢复 ${result.affectedRows} 个重启前的在途任务`);
   }
 }
 
@@ -122,10 +142,13 @@ function startQueueWorker() {
   if (running) return;
   running = true;
   console.log(`[批改队列] worker ${WORKER_ID} 启动（并发 ${config.grading.concurrency}，轮询 ${config.grading.pollInterval}ms）`);
+  recoverProcessingAtBoot().catch(e => console.error('[批改队列] 启动恢复失败:', e.message));
   pollLoop();
   reaperTimer = setInterval(reapStalled, 60 * 1000);
 
-  // 优雅停机：停止领新任务，等待在途任务完成（最多 30s）
+  // 优雅停机：停止领新任务，等待在途任务完成（最多 30s）。
+  // 只注册回调不自行 process.exit——退出时机由 utils/processShutdown 统一协调，
+  // 否则空闲的批改 worker 会瞬间退出，把查重 worker 正在跑的大任务连进程杀掉。
   let shuttingDown = false;
   const shutdown = async () => {
     if (shuttingDown) return;
@@ -136,8 +159,7 @@ function startQueueWorker() {
     while (activeTasks.size > 0 && Date.now() < deadline) await sleep(500);
     console.log(`[批改队列] worker ${WORKER_ID} 已停止（在途任务 ${activeTasks.size} 个）`);
   };
-  process.on('SIGINT', () => shutdown().then(() => process.exit(0)));
-  process.on('SIGTERM', () => shutdown().then(() => process.exit(0)));
+  registerShutdownHandler(shutdown);
 }
 
 module.exports = { startQueueWorker, claimTasks, reapStalled };

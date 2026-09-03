@@ -6,7 +6,9 @@ const {
   sequelize, Assignment, Course, Class, User, ClassStudent, Submission, Notification
 } = require('../models');
 const { success, fail } = require('../utils/response');
+const { formatCST } = require('../utils/formatCST');
 const { isOverdue, isValidFutureDate } = require('./assignmentController');
+const { sanitizeSampleFiles, parseAssignmentLimits } = require('../utils/assignmentInput');
 
 // 班级负责人：发布作业（只能发布给自己负责的班级课程）
 exports.createClassAssignment = async (req, res, next) => {
@@ -28,18 +30,23 @@ exports.createClassAssignment = async (req, res, next) => {
     if (!isValidFutureDate(deadline)) {
       return fail(res, '截止时间必须晚于当前时间', 422);
     }
+    const limits = parseAssignmentLimits(max_files, max_size_mb);
+    if (!limits.ok) return fail(res, limits.msg, 422);
+    const samples = sanitizeSampleFiles(sample_files);
+    if (!samples.ok) return fail(res, samples.msg, 422);
 
     // 使用班级的任课教师ID作为作业发布者（或者用学生自己的ID）
     const assignment = await Assignment.create({
-      title,
+      title: String(title).slice(0, 200), // STRING(200) 列宽保护
       description: description || null,
       course_id,
       teacher_id: course.teacher_id || req.user.id,
+      created_by: req.user.id,
       deadline,
       allowed_formats: allowed_formats || ['pdf', 'doc', 'docx', 'jpg', 'png', 'zip'],
-      max_files: max_files || 5,
-      max_size_mb: max_size_mb || 100,
-      sample_files: sample_files || null,
+      max_files: limits.maxFiles || 5,
+      max_size_mb: limits.maxSizeMb || 100,
+      sample_files: samples.data,
       need_grading: need_grading !== undefined ? (need_grading ? 1 : 0) : 0
     });
 
@@ -213,7 +220,7 @@ exports.classRemindUnsubmitted = async (req, res, next) => {
     await Notification.bulkCreate(toRemind.map(stu => ({
       user_id: stu.id,
       title: '同学催交：作业提醒',
-      content: `${leaderPos}${leaderName}提醒你：作业「${assignment.title}」截止 ${new Date(assignment.deadline).toLocaleString('zh-CN')}，请尽快提交！`,
+      content: `${leaderPos}${leaderName}提醒你：作业「${assignment.title}」截止 ${formatCST(assignment.deadline)}，请尽快提交！`,
       type: 'assignment',
       related_id: assignment.id
     })));
@@ -224,7 +231,7 @@ exports.classRemindUnsubmitted = async (req, res, next) => {
   }
 };
 
-// 班级负责人：删除作业（只能删除自己发布的或本班负责的作业）
+// 班级负责人：删除作业（只能删除自己发布的作业；教师发布的作业只能由教师/管理员处理）
 exports.classDeleteAssignment = async (req, res, next) => {
   try {
     const classId = req.classLeader.classId;
@@ -236,6 +243,9 @@ exports.classDeleteAssignment = async (req, res, next) => {
     if (!assignment.course) return fail(res, '作业所属课程已不存在', 422);
     if (assignment.course.class_id !== classId) {
       return fail(res, '该作业不属于你负责的班级', 403);
+    }
+    if (assignment.created_by !== req.user.id) {
+      return fail(res, '只能删除自己代发的作业；教师发布的作业请联系任课教师处理', 403);
     }
     const subCount = await Submission.count({ where: { assignment_id: assignment.id } });
     if (subCount > 0) {
@@ -329,19 +339,26 @@ exports.classUpdateAssignment = async (req, res, next) => {
     if (assignment.course.class_id !== classId) {
       return fail(res, '该作业不属于你负责的班级', 403);
     }
+    if (assignment.created_by !== req.user.id) {
+      return fail(res, '只能修改自己代发的作业；教师发布的作业请联系任课教师处理', 403);
+    }
     const { title, description, deadline, allowed_formats, max_files, max_size_mb, need_grading, sample_files } = req.body;
     if (deadline !== undefined && deadline !== null && deadline !== '' && !isValidFutureDate(deadline)) {
       return fail(res, '截止时间格式非法或早于当前时间', 422);
     }
+    const limits = parseAssignmentLimits(max_files, max_size_mb);
+    if (!limits.ok) return fail(res, limits.msg, 422);
+    const samples = sanitizeSampleFiles(sample_files);
+    if (!samples.ok) return fail(res, samples.msg, 422);
     await assignment.update({
-      title: title !== undefined ? title : assignment.title,
+      title: title !== undefined ? String(title).slice(0, 200) : assignment.title, // STRING(200) 列宽保护
       description: description !== undefined ? description : assignment.description,
       deadline: deadline || assignment.deadline,
       allowed_formats: allowed_formats || assignment.allowed_formats,
-      max_files: max_files || assignment.max_files,
-      max_size_mb: max_size_mb || assignment.max_size_mb,
+      max_files: limits.maxFiles || assignment.max_files,
+      max_size_mb: limits.maxSizeMb || assignment.max_size_mb,
       need_grading: need_grading !== undefined ? (need_grading ? 1 : 0) : assignment.need_grading,
-      sample_files: sample_files !== undefined ? sample_files : assignment.sample_files
+      sample_files: samples.data === null && sample_files === undefined ? assignment.sample_files : samples.data
     });
     return success(res, assignment, '修改成功');
   } catch (err) {

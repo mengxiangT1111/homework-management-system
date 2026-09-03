@@ -164,7 +164,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Document, Clock, Plus } from '@element-plus/icons-vue'
 import { courseApi, downloadFile } from '@/api'
-import { toPickerValue, rateColor } from '@/utils/format'
+import { toPickerValue, rateColor, localToISO } from '@/utils/format'
 
 const courses = ref([])
 const currentCourseId = ref(null)
@@ -174,7 +174,10 @@ const currentAssignment = ref(null)
 const unsubData = ref(null)
 const reminding = ref(false)
 
-function formatTime(t) { return new Date(t).toLocaleString('zh-CN') }
+function formatTime(t) {
+  const d = new Date(t)
+  return isNaN(d.getTime()) ? '—' : d.toLocaleString('zh-CN')
+}
 
 async function loadCourses() {
   const res = await courseApi.myAssistantships()
@@ -252,7 +255,8 @@ async function submitCreate() {
   }
   creating.value = true
   try {
-    await courseApi.assistantCreateAssignment({ course_id: currentCourseId.value, ...createForm })
+    // deadline 为 picker 本地串，转 ISO 提交避免跨时区/UTC 容器漂移
+    await courseApi.assistantCreateAssignment({ course_id: currentCourseId.value, ...createForm, deadline: localToISO(createForm.deadline) })
     ElMessage.success('作业发布成功')
     createVisible.value = false
     loadData()
@@ -287,7 +291,8 @@ async function saveEdit() {
   }
   savingEdit.value = true
   try {
-    await courseApi.assistantUpdateAssignment(editingAssignment.value.id, { course_id: currentCourseId.value, ...editForm })
+    // deadline 为 picker 本地串，转 ISO 提交避免跨时区/UTC 容器漂移
+    await courseApi.assistantUpdateAssignment(editingAssignment.value.id, { course_id: currentCourseId.value, ...editForm, deadline: localToISO(editForm.deadline) })
     ElMessage.success('修改成功')
     editVisible.value = false
     loadData()

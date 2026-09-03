@@ -9,8 +9,10 @@ const path = require('path');
 // 检测服务URL配置
 const DETECTION_SERVICE_URL = process.env.DETECTION_SERVICE_URL || 'http://localhost:8000';
 const DETECTION_TIMEOUT = parseInt(process.env.DETECTION_TIMEOUT || '60000', 10); // 60秒超时
-// 服务间鉴权 token，与 Python 侧 DETECTION_API_TOKEN 共享（未配置时双方使用相同默认值）
-const DETECTION_API_TOKEN = process.env.DETECTION_API_TOKEN || 'detection-dev-token';
+// 服务间鉴权 token，与 Python 侧 DETECTION_API_TOKEN 共享。
+// 不再有写死在源码里的默认值（源码公开的默认 token 等于没设防）；
+// Python 侧在未配置时同样会生成随机 token —— 两端都必须显式配置才能连通。
+const DETECTION_API_TOKEN = process.env.DETECTION_API_TOKEN || '';
 
 // 上传目录配置
 const UPLOAD_DIR = process.env.UPLOAD_DIR || 'uploads';
@@ -25,6 +27,13 @@ const apiClient = axios.create({
   }
 });
 
+// 未配置共享 token 时快速失败，给出明确配置指引（而不是 401 静默失败）
+function ensureTokenConfigured() {
+  if (!DETECTION_API_TOKEN) {
+    throw new Error('查重服务未配置鉴权：请在 .env 同时设置 DETECTION_API_TOKEN（Node 与 Python 两侧使用同一值）');
+  }
+}
+
 /**
  * 检测服务封装
  */
@@ -38,6 +47,7 @@ const detectionService = {
    * @returns {Promise<Object>} 检测结果
    */
   async detect(params) {
+    ensureTokenConfigured();
     try {
       const response = await apiClient.post('/api/detect', {
         source_path: params.sourcePath,
@@ -114,6 +124,7 @@ const detectionService = {
    * @returns {Promise<Object>} 提取结果
    */
   async previewExtraction(filePath) {
+    ensureTokenConfigured();
     try {
       const response = await apiClient.post('/api/preview-extraction', null, {
         params: { file_path: filePath }
@@ -126,10 +137,14 @@ const detectionService = {
   
   /**
    * 健康检查
+   * 注意：Python 侧 /api/health 免鉴权，未配置共享 token 时它会照常返回 healthy，
+   * 造成"健康检查通过、实际 detect 全部 401 失败"的假阳性（实测复现）。
+   * 这里先做 token 前置校验，未配置一律视为不健康。
    * @returns {Promise<boolean>} 服务是否健康
    */
   async healthCheck() {
     try {
+      ensureTokenConfigured();
       const response = await apiClient.get('/api/health');
       return response.data.status === 'healthy';
     } catch (error) {

@@ -85,29 +85,47 @@ async function createBatchTasks({ teacher, assignmentId, templateId, referenceAn
   const submissions = await Submission.findAll({ where, attributes: ['id'] });
   if (submissions.length === 0) throw Object.assign(new Error('没有待批改的提交'), { status: 422 });
 
-  // 排除已有进行中任务的提交，防止重复批改
-  const busy = await GradingTask.findAll({
-    where: { submission_id: submissions.map(s => s.id), status: ['pending', 'processing'] },
-    attributes: ['submission_id']
-  });
-  const busySet = new Set(busy.map(b => b.submission_id));
-  const targets = submissions.filter(s => !busySet.has(s.id));
-  if (targets.length === 0) throw Object.assign(new Error('所有提交均已有进行中的批改任务'), { status: 422 });
+  // 排除已有进行中任务的提交，防止重复批改。
+  // 检查+插入用 MySQL 命名锁串行化（同一事务同一连接，锁有效）：
+  // 此前"先查后插"无原子性，前端双击/并发会建出两批任务——同一提交被
+  // LLM 跑两遍（双倍费用）且后写覆盖先写。
+  const tasks = await sequelize.transaction(async (trx) => {
+    const lockName = `grading_batch:${assignmentId}`;
+    const [lockRow] = await sequelize.query(
+      'SELECT GET_LOCK(:lock, 5) AS got', { replacements: { lock: lockName }, transaction: trx }
+    );
+    const got = lockRow && lockRow[0] && lockRow[0].got;
+    if (got !== 1) {
+      throw Object.assign(new Error('批改任务创建中，请勿重复提交'), { status: 429 });
+    }
+    try {
+      const busy = await GradingTask.findAll({
+        where: { submission_id: submissions.map(s => s.id), status: ['pending', 'processing'] },
+        attributes: ['submission_id'],
+        transaction: trx
+      });
+      const busySet = new Set(busy.map(b => b.submission_id));
+      const targets = submissions.filter(s => !busySet.has(s.id));
+      if (targets.length === 0) throw Object.assign(new Error('所有提交均已有进行中的批改任务'), { status: 422 });
 
-  const snapshot = templateService.buildTemplateJSON(template); // 快照固化，重试/审计用同一标准
-  const tasks = await GradingTask.bulkCreate(targets.map(s => ({
-    submission_id: s.id,
-    assignment_id: assignmentId,
-    template_id: templateId,
-    template_snapshot: snapshot,
-    prompt_key: 'grading.main',
-    prompt_mode: ['balanced', 'strict', 'encouraging'].includes(mode) ? mode : 'balanced',
-    reference_answer: String(referenceAnswer),
-    grading_criteria: gradingCriteria || null,
-    max_attempts: config.grading.maxAttempts,
-    priority: 5,
-    created_by: teacher.id
-  })));
+      const snapshot = templateService.buildTemplateJSON(template); // 快照固化，重试/审计用同一标准
+      return await GradingTask.bulkCreate(targets.map(s => ({
+        submission_id: s.id,
+        assignment_id: assignmentId,
+        template_id: templateId,
+        template_snapshot: snapshot,
+        prompt_key: 'grading.main',
+        prompt_mode: ['balanced', 'strict', 'encouraging'].includes(mode) ? mode : 'balanced',
+        reference_answer: String(referenceAnswer),
+        grading_criteria: gradingCriteria || null,
+        max_attempts: config.grading.maxAttempts,
+        priority: 5,
+        created_by: teacher.id
+      })), { transaction: trx });
+    } finally {
+      await sequelize.query('SELECT RELEASE_LOCK(:lock)', { replacements: { lock: lockName }, transaction: trx }).catch(() => {});
+    }
+  });
 
   return { count: tasks.length, task_ids: tasks.map(t => t.id) };
 }
@@ -151,27 +169,34 @@ async function processTask(task) {
     });
 
     // 3. 调 LLM（进程内允许一次"解析失败即重调"，仍失败交给队列退避重试）
+    // 心跳续租：LLM 单次调用最坏耗时数分钟，期间每分钟续租 locked_at，
+    // 防止被僵死回收器误判重跑（此前只在调用返回后才续租，长任务有被双跑的窗口）
+    const heartbeat = setInterval(() => {
+      GradingTask.update({ locked_at: new Date() }, { where: { id: t.id, status: 'processing' } }).catch(() => {});
+    }, 60 * 1000);
     let parsed = null;
     let llmResp = null;
     let parseRetries = 0;
-    for (let i = 0; i < 2 && !parsed; i++) {
-      parseRetries = i;
-      llmResp = await llmClient.chatCompletion({
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userMessage }
-        ],
-        temperature: 0.1,
-        maxTokens: 4096,
-        jsonMode: true
-      });
-      // 心跳：LLM 单次调用最坏可耗时数分钟，续租防止被僵死回收器误判
-      GradingTask.update({ locked_at: new Date() }, { where: { id: t.id, status: 'processing' } }).catch(() => {});
-      try {
-        parsed = parseGradingOutput(safeParseJSON(llmResp.content), templateJSON);
-      } catch (e) {
-        if (i === 1) throw new Error(`AI 返回解析失败：${e.message}`); // 可重试错误（非 permanent）
+    try {
+      for (let i = 0; i < 2 && !parsed; i++) {
+        parseRetries = i;
+        llmResp = await llmClient.chatCompletion({
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userMessage }
+          ],
+          temperature: 0.1,
+          maxTokens: 4096,
+          jsonMode: true
+        });
+        try {
+          parsed = parseGradingOutput(safeParseJSON(llmResp.content), templateJSON);
+        } catch (e) {
+          if (i === 1) throw new Error(`AI 返回解析失败：${e.message}`); // 可重试错误（非 permanent）
+        }
       }
+    } finally {
+      clearInterval(heartbeat);
     }
 
   // 4. 服务端权威算分 + 置信度
@@ -184,7 +209,24 @@ async function processTask(task) {
     fullScore: templateJSON.full_score,
     answerLength: studentAnswer.length
   });
-  const needsReview = confidence < config.grading.reviewThreshold || parsed.missingCount > 0;
+  // 提示词注入兜底：AI 判满分的结果不允许静默自动回写（学生作答未受控，
+  // 即使有围栏隔离，注入仍是概率性攻击）。满分一律进人工复核队列，
+  // 教师确认后生效；关闭 autoApply 的部署本就不回写，维持原判定。
+  const fullScoreHit = Number(templateJSON.full_score) > 0 && total >= Number(templateJSON.full_score);
+  if (fullScoreHit && config.grading.autoApply && !reasons.includes('总分为满分或0分，属异常高发区间')) {
+    reasons.push('AI 判定满分，自动回写前需人工确认');
+  }
+  const needsReview = confidence < config.grading.reviewThreshold
+    || parsed.missingCount > 0
+    || (fullScoreHit && config.grading.autoApply);
+
+  // 复查任务状态：LLM 期间任务可能被取消（如教师已手动批改，
+  // gradeSubmission 会取消该提交的进行中任务）。已取消则放弃结果落库与回写，
+  // 防止 AI 分数覆盖教师手动成绩。
+  const freshTask = await GradingTask.findByPk(t.id, { attributes: ['id', 'status'] });
+  if (!freshTask || freshTask.status !== 'processing') {
+    return null; // 幂等退出：任务已取消/完成
+  }
 
   // 5. 事务入库：结果 + 任务状态 + 复核工单
   let resultId = null;
@@ -346,6 +388,15 @@ async function getLatestResult(submissionId) {
 async function submitReview({ review, reviewer, action, finalScore, dimensionAdjustments, comment }) {
   const submission = await Submission.findByPk(review.submission_id);
   const result = await GradingResult.findByPk(review.result_id);
+  // 结果可能已被清理（删除学生/手动清理），判空给出明确错误而不是 TypeError 500
+  if (!result) {
+    throw Object.assign(new Error('该复核工单对应的 AI 批改结果已不存在，无法处理'), { status: 422 });
+  }
+
+  // 接口层 action 为 approve/adjust/reject（动词），落库 ENUM 是 approved/adjusted/rejected（过去式）。
+  // 此前直接把动词写进 status 列，三种操作全部触发数据库报错 → 复核功能整体瘫痪。
+  const statusMap = { approve: 'approved', adjust: 'adjusted', reject: 'rejected' };
+  const statusVal = statusMap[action] || action;
 
   let finalScoreVal = null;
   if (action === 'approve') {
@@ -360,7 +411,7 @@ async function submitReview({ review, reviewer, action, finalScore, dimensionAdj
 
   await sequelize.transaction(async (trx) => {
     await review.update({
-      status: action,
+      status: statusVal,
       reviewer_id: reviewer.id,
       reviewed_at: new Date(),
       final_score: finalScoreVal,

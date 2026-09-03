@@ -122,7 +122,12 @@ exports.aiGrade = async (req, res, next) => {
     // 调用统计（可选，存到日志）
     console.log(`[AI 批改] 完成，得分: ${result.score}/${full_score}`);
 
-    return success(res, result, 'AI 批改完成');
+    // 满分结果提示教师核对（提示词注入为概率性攻击，单题结果不自动回写，
+    // 由教师当场判断；满分是最需要人工确认的区间）
+    const isFullScore = Number(result.score) >= full_score;
+    return success(res, result, isFullScore
+      ? 'AI 批改完成（AI 判定满分，请核对作答内容后再采用，警惕作答中的诱导性文字）'
+      : 'AI 批改完成');
   } catch (err) {
     if (err.message && err.message.includes('超时')) {
       return fail(res, 'AI 批改请求超时，请稍后重试', 504);
@@ -181,7 +186,8 @@ exports.uploadReference = async (req, res, next) => {
     if (!req.file) return fail(res, '请上传 Word 文件', 422);
     try {
       const text = await mammoth.extractRawText({ path: req.file.path });
-      return success(res, { text: text.value, filePath: req.file.path.replace(/\\/g, '/') }, '解析成功');
+      // 只回传文件名，不回传服务器绝对路径（路径信息泄露）
+      return success(res, { text: text.value, fileName: path.basename(req.file.originalname || '参考答案') }, '解析成功');
     } finally {
       // 临时文件用后即删（内容已提取为文本，磁盘不需要保留）
       fs.promises.unlink(req.file.path).catch(() => {});

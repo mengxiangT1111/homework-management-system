@@ -12,6 +12,8 @@ const SubmissionFile = require('./SubmissionFile');
 const Notification = require('./Notification');
 const PlagiarismResult = require('./PlagiarismResult');
 const PlagiarismTask = require('./PlagiarismTask');
+const UploadRecord = require('./UploadRecord');
+const ChunkOwnership = require('./ChunkOwnership');
 
 // AI 智能批改模块
 const {
@@ -134,6 +136,8 @@ module.exports = {
   Notification,
   PlagiarismResult,
   PlagiarismTask,
+  UploadRecord,
+  ChunkOwnership,
   GradingTemplate,
   GradingDimension,
   DimensionRubric,

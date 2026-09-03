@@ -80,7 +80,7 @@
         <el-button type="primary" size="small" @click="openAddStudent">+ 添加学生</el-button>
         <span style="color:var(--text-light);font-size:13px;line-height:32px">共 {{ students.length }} 名学生</span>
       </div>
-      <el-table :data="students" stripe size="small" max-height="400">
+      <el-table v-loading="studentsLoading" :data="students" stripe size="small" max-height="400">
         <el-table-column label="学号" prop="username" width="120" />
         <el-table-column label="姓名" prop="real_name" width="100" />
         <el-table-column label="职务" width="100" align="center">
@@ -111,7 +111,8 @@
 
     <!-- 添加学生对话框 -->
     <el-dialog v-model="addStudentVisible" title="添加学生到班级" width="560px">
-      <el-select v-model="selectedStudents" multiple filterable placeholder="搜索并选择学生" style="width:100%">
+      <el-select v-model="selectedStudents" multiple filterable :loading="studentsLoading"
+        :placeholder="studentsLoading ? '学生列表加载中…' : '搜索并选择学生'" style="width:100%">
         <el-option v-for="s in allStudents" :key="s.id" :label="`${s.real_name}（${s.username}）`" :value="s.id" />
       </el-select>
       <template #footer>
@@ -226,18 +227,30 @@ async function removeCls(row) {
   } catch (e) {}
 }
 
+const studentsLoading = ref(false)
+
 async function viewStudents(row) {
   currentClass.value = row
-  const res = await classApi.students(row.id)
-  students.value = res.data.students
+  studentsLoading.value = true
   studentVisible.value = true
+  try {
+    const res = await classApi.students(row.id)
+    students.value = res.data.students
+  } catch (e) {
+    students.value = []
+  } finally { studentsLoading.value = false }
 }
 
 async function openAddStudent() {
   selectedStudents.value = []
-  const res = await userApi.students({ keyword: '', school_id: currentClass.value.school_id })
-  allStudents.value = res.data
+  studentsLoading.value = true
   addStudentVisible.value = true
+  try {
+    const res = await userApi.students({ keyword: '', school_id: currentClass.value.school_id })
+    allStudents.value = res.data || []
+  } catch (e) {
+    allStudents.value = []
+  } finally { studentsLoading.value = false }
 }
 
 async function confirmAddStudents() {

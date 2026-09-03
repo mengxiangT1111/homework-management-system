@@ -121,6 +121,11 @@
         </view>
       </view>
     </template>
+    <!-- 加载失败/缺参：给出原因与重试入口，不再整页空白 -->
+    <view class="card" v-else style="margin-top: 24rpx;">
+      <empty-state icon="⚠️" text="提交加载失败" :sub="loadError || '网络异常，请稍后重试'" />
+      <button class="btn-ghost err-retry" hover-class="hv" @click="load">重新加载</button>
+    </view>
   </view>
 </template>
 
@@ -140,6 +145,8 @@ const aiResult = ref(null)
 const score = ref('')
 const comment = ref('')
 const saving = ref(false)
+// 加载失败/缺参提示（此前失败时整页纯白无任何反馈）
+const loadError = ref('')
 
 const showAdjust = ref(false)
 const showReject = ref(false)
@@ -164,7 +171,13 @@ onLoad((q) => {
   if (q.reviewId) reviewId.value = q.reviewId
 })
 onShow(() => {
-  if (submissionId) load()
+  // 缺少 submissionId（页面栈参数丢失）时给出明确提示而不是整页空白
+  if (!submissionId) {
+    loadError.value = '缺少提交参数，请从作业详情重新进入'
+    return
+  }
+  loadError.value = ''
+  load()
 })
 
 // 纯视图辅助：维度得分百分比
@@ -183,6 +196,8 @@ async function load() {
       comment.value = detail.value.comment || ''
     }
   } catch (e) {
+    detail.value = null
+    loadError.value = '提交加载失败或已被删除'
     return
   }
   try {
@@ -372,4 +387,10 @@ function reject() {
   padding-top: 26rpx;
 }
 .input-ph { color: #a8bdb4; }
+/* 加载失败卡的重试按钮 */
+.err-retry {
+  width: 100%;
+  height: 80rpx;
+  margin-top: 24rpx;
+}
 </style>

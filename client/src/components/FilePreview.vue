@@ -22,9 +22,9 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { Document } from '@element-plus/icons-vue'
-import { fileUrl as resolveUrl } from '@/utils/fileUrl'
+import { resolveFileUrl } from '@/utils/fileUrl'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -42,11 +42,25 @@ const ext = computed(() => props.fileName.split('.').pop().toLowerCase())
 const isPdf = computed(() => ext.value === 'pdf')
 const isImage = computed(() => ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'].includes(ext.value))
 
-const fileUrl = computed(() => resolveUrl(props.filePath))
+// URL 需经 /api/files/urls 换取短时效票据（iframe/img 无法带 Authorization 头），
+// 打开弹窗时异步解析；解析期间组件短暂空白属预期
+const url = ref('')
+watch(
+  () => [props.modelValue, props.filePath],
+  async ([open, fp]) => {
+    if (open && fp) {
+      url.value = ''
+      url.value = await resolveFileUrl(fp)
+    }
+  },
+  { immediate: true }
+)
+
+const fileUrl = computed(() => url.value)
 
 function downloadFile() {
-  // resolveUrl 已归一化处理 cos://、'/cos://'（历史样例数据）与本地路径（自动带 token）
-  window.open(resolveUrl(props.filePath), '_blank')
+  // 已解析则直接打开（COS 为签名 URL，本地为票据 URL）
+  if (url.value) window.open(url.value, '_blank')
 }
 </script>
 

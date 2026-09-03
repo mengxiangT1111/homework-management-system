@@ -80,7 +80,10 @@ const gradingVisible = ref(false)
 const gradingResult = ref(null)
 const gradingLoadingId = ref(null)
 
-function formatTime(t) { return new Date(t).toLocaleString('zh-CN') }
+function formatTime(t) {
+  const d = new Date(t)
+  return isNaN(d.getTime()) ? '—' : d.toLocaleString('zh-CN')
+}
 const statusText = (s) => statusOf(SUBMISSION_STATUS, s).text
 const statusType = (s) => statusOf(SUBMISSION_STATUS, s).type
 

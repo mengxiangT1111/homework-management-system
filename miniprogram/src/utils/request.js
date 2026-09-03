@@ -9,6 +9,9 @@ let redirectingToLogin = false
 function handleUnauthorized() {
   uni.removeStorageSync('token')
   uni.removeStorageSync('userInfo')
+  // 同步 pinia 内存登录态（App.vue 监听）：只清 Storage 的话，
+  // reLaunch 前的窗口期内 isLoggedIn 仍为 true，页面会读到过期登录态
+  uni.$emit('auth:unauthorized')
   if (redirectingToLogin) return
   redirectingToLogin = true
   uni.showToast({ title: '登录已过期，请重新登录', icon: 'none' })
@@ -20,6 +23,11 @@ function handleUnauthorized() {
       }
     })
   }, 600)
+}
+
+// 登录接口的 401 是业务失败（账号/密码错误、选错学校），不是"登录过期"
+function isLoginRequest(url) {
+  return typeof url === 'string' && url.indexOf('/api/auth/login') !== -1
 }
 
 function failToast(message) {
@@ -39,10 +47,12 @@ export function request({ url, method = 'GET', data, timeout = 30000, silent = f
       timeout,
       header: { Authorization: 'Bearer ' + getToken() },
       success: (res) => {
-        if (res.statusCode === 401) {
+        if (res.statusCode === 401 && !isLoginRequest(url)) {
           handleUnauthorized()
           return reject(new Error('未登录'))
         }
+        // 登录接口的 401 落到这里按 body 统一解包：toast 服务端返回的真实
+        // 错误文案（如"学号/工号或密码错误"），并保留用户已填的表单
         const body = res.data
         if (!body || typeof body !== 'object') {
           if (!silent) failToast('服务异常，请稍后重试')

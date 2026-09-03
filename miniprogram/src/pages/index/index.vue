@@ -171,6 +171,9 @@ const studentStats = ref([])
 const teacherStats = ref([])
 const pendingList = ref([])
 const recentList = ref([])
+// 学生是否担任班委/课代表（控制首页「作业收集」入口显隐；此前漏声明，
+// loadDuties 赋值直接 ReferenceError，入口永远出不来）
+const hasDuty = ref(false)
 
 onShow(() => {
   if (!auth.isLoggedIn) return

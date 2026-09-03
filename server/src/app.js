@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
+const helmet = require('helmet');
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
 
@@ -16,6 +17,13 @@ if (process.env.TRUST_PROXY) {
 }
 
 // ===== 中间件 =====
+// 安全响应头（nosniff 等）；CSP 由前端 nginx 负责（API 返回 JSON，无脚本执行面），
+// CORP 放开为 cross-origin 以允许开发态下 5173 端口页面内联加载 3000 端口文件
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginResourcePolicy: { policy: 'cross-origin' }
+}));
+
 // CORS：配置了白名单才允许携带凭证；未配置时退化为通配源且不带凭证
 // （通配源 + credentials 组合不符合 CORS 规范，浏览器会拒绝凭据请求）
 const corsOptions = process.env.CORS_ORIGIN
@@ -24,7 +32,19 @@ const corsOptions = process.env.CORS_ORIGIN
 app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-app.use(morgan('dev'));
+
+// 访问日志：对 query 中的凭证参数（token/st）脱敏，防止 JWT/票据进日志文件
+app.use(morgan((tokens, req, res) => {
+  const url = (tokens.url(req, res) || '')
+    .replace(/([?&])(token|st)=[^&]*/gi, '$1$2=***');
+  return [
+    tokens.method(req, res),
+    url,
+    tokens.status(req, res),
+    tokens['response-time'](req, res), 'ms -',
+    tokens.res(req, res, 'content-length')
+  ].join(' ');
+}));
 
 // ===== 上传文件鉴权下载 =====
 // 原 /uploads/:yearMonth/:filename 静态路由只验证登录不校验文件归属（任意登录用户
@@ -55,7 +75,7 @@ app.get('/api/health', (req, res) => {
 
 // ===== 404 处理 =====
 app.use((req, res) => {
-  res.status(404).json({ code: 404, success: false, message: '接口不存在: ' + req.originalUrl, data: null });
+  res.status(404).json({ code: 404, success: false, message: '接口不存在', data: null });
 });
 
 // ===== 全局错误处理 =====

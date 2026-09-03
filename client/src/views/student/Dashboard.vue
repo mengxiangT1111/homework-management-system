@@ -81,7 +81,10 @@ const classNames = ref([])
 const loading = ref(true)
 const loadError = ref(false)
 
-function formatTime(t) { return new Date(t).toLocaleString('zh-CN') }
+function formatTime(t) {
+  const d = new Date(t)
+  return isNaN(d.getTime()) ? '—' : d.toLocaleString('zh-CN')
+}
 function isUrgent(deadline) {
   const diff = new Date(deadline) - new Date()
   return diff < 24 * 60 * 60 * 1000 && diff > 0

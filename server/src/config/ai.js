@@ -8,8 +8,10 @@ function normalizeEndpoint(url) {
 }
 
 const config = {
-  apiUrl: normalizeEndpoint(process.env.AI_API_URL || 'https://your-new-api.com/v1/chat/completions'),
-  apiKey: process.env.AI_API_KEY || 'sk-your-api-key',
+  // 全部显式取环境变量；不再有占位 URL/key 兜底（占位值会掩盖漏配：AI 请求
+  // 打向错误地址或带无效 key，报错晚且难排查）。未配置时由 llmClient 快速失败。
+  apiUrl: normalizeEndpoint(process.env.AI_API_URL),
+  apiKey: process.env.AI_API_KEY,
   model: process.env.AI_MODEL || 'gpt-4o',
   // 备用模型（主模型熔断期间降级使用），留空=不降级
   fallbackModel: process.env.AI_MODEL_FALLBACK || '',

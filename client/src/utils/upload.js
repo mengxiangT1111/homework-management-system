@@ -36,6 +36,26 @@ function calcFileHash(file) {
   })
 }
 
+// 单分片失败自动重试（弱网下大文件成功率明显提升；断点续传仍在，
+// 重试耗尽后由用户手动重试，已传分片不会重传）
+const CHUNK_RETRIES = 2
+const RETRY_DELAY_MS = 1000
+
+async function uploadChunkWithRetry(formData, hash, i) {
+  let lastErr = null
+  for (let attempt = 0; attempt <= CHUNK_RETRIES; attempt++) {
+    try {
+      return await uploadApi.uploadChunk(formData, hash, i)
+    } catch (e) {
+      lastErr = e
+      if (attempt < CHUNK_RETRIES) {
+        await new Promise(r => setTimeout(r, RETRY_DELAY_MS * (attempt + 1)))
+      }
+    }
+  }
+  throw lastErr
+}
+
 /**
  * 分片上传（支持秒传 + 断点续传）
  * @param {File} file 文件对象
@@ -50,7 +70,7 @@ export async function uploadFileChunked(file, onProgress) {
   const checkRes = await uploadApi.check(hash)
   const uploadedSet = new Set(checkRes.data.uploaded_chunks)
 
-  // 3. 逐片上传（跳过已传）
+  // 3. 逐片上传（跳过已传，单片失败自动重试）
   let uploadedCount = uploadedSet.size
   for (let i = 0; i < chunks; i++) {
     if (uploadedSet.has(i)) continue
@@ -61,7 +81,7 @@ export async function uploadFileChunked(file, onProgress) {
     const formData = new FormData()
     formData.append('chunk', chunk)
 
-    await uploadApi.uploadChunk(formData, hash, i)
+    await uploadChunkWithRetry(formData, hash, i)
     uploadedCount++
     if (onProgress) {
       // 上传进度占整体 90%（剩 10% 给合并）
@@ -72,13 +92,36 @@ export async function uploadFileChunked(file, onProgress) {
   if (onProgress) onProgress(95)
 
   // 4. 合并
-  const mergeRes = await uploadApi.merge({
-    hash,
-    filename: file.name,
-    total: chunks,
-    mime_type: file.type,
-    size: file.size
-  })
+  // 403 = 服务端判定本人未上传过该文件的分片（磁盘残留分片来自历史会话或他人，
+  // 数据库无本人的持有记录）。此时忽略 check 结果全量重传一遍分片再合并一次。
+  let mergeRes
+  try {
+    mergeRes = await uploadApi.merge({
+      hash,
+      filename: file.name,
+      total: chunks,
+      mime_type: file.type,
+      size: file.size
+    })
+  } catch (e) {
+    const status = e && e.response && e.response.status
+    if (status !== 403) throw e
+    for (let i = 0; i < chunks; i++) {
+      const start = i * CHUNK_SIZE
+      const end = Math.min(start + CHUNK_SIZE, file.size)
+      const formData = new FormData()
+      formData.append('chunk', file.slice(start, end))
+      await uploadChunkWithRetry(formData, hash, i)
+      if (onProgress) onProgress(Math.round(((i + 1) / chunks) * 90))
+    }
+    mergeRes = await uploadApi.merge({
+      hash,
+      filename: file.name,
+      total: chunks,
+      mime_type: file.type,
+      size: file.size
+    })
+  }
 
   if (onProgress) onProgress(100)
   return mergeRes.data

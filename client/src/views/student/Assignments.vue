@@ -60,7 +60,10 @@ const pageSize = 10
 const loading = ref(false)
 const keyword = ref('')
 
-function formatTime(t) { return new Date(t).toLocaleString('zh-CN') }
+function formatTime(t) {
+  const d = new Date(t)
+  return isNaN(d.getTime()) ? '—' : d.toLocaleString('zh-CN')
+}
 
 async function loadData() {
   loading.value = true

@@ -1,4 +1,4 @@
-import request from './request'
+import request, { handleSessionExpired } from './request'
 import { ElMessage } from 'element-plus'
 
 // ===== 认证 =====
@@ -201,6 +201,10 @@ export function downloadFile(url, filename) {
       link.click()
       document.body.removeChild(link)
       window.URL.revokeObjectURL(link.href)
+    } else if (xhr.status === 401) {
+      // 与 axios 拦截器同口径：会话过期统一登出并跳登录页
+      //（此前只提示"下载失败"，用户在其他页面又被跳登录，行为不一致）
+      handleSessionExpired()
     } else {
       ElMessage.error('下载失败')
     }

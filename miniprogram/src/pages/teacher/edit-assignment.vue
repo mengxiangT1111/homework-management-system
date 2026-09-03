@@ -338,6 +338,15 @@ async function save() {
 
   try {
     if (isEdit.value) {
+      // 详情未加载成功（弱网/403/404）时 original 为 null，直接拼 payload 会
+      // TypeError 被外层 catch 吞掉、按钮看似"失灵"。这里先重试加载，仍失败则明确提示
+      if (!original) {
+        uni.showToast({ title: '作业详情未加载，正在重试…', icon: 'none' })
+        await loadAssignment()
+        if (!original) {
+          return uni.showToast({ title: '详情加载失败，请返回重新进入', icon: 'none' })
+        }
+      }
       // 编辑：只提交有变化的字段。服务端仅在携带 deadline 时校验"晚于当前时间"，
       // 原样回传已逾期的旧截止时间会被 422，因此未修改的字段一律不带。
       const payload = {}
@@ -425,6 +434,10 @@ async function save() {
 .sm-prog {
   height: 8rpx;
   margin-top: 10rpx;
+}
+/* 上传失败态图标块底色（模板引用此前无定义，失败态无视觉区分） */
+.tile-red-bg {
+  background: #fef0f0;
 }
 .pick-row {
   display: flex;

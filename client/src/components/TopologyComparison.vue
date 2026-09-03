@@ -130,9 +130,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
-import { ElMessage } from 'element-plus'
-import { plagiarismApi } from '@/api'
+import { ref, computed, watch, nextTick, onMounted } from 'vue'
 
 const props = defineProps({
   modelValue: Boolean,

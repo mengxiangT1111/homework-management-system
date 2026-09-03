@@ -4,6 +4,7 @@ const courseController = require('../controllers/courseController');
 const courseAssistantController = require('../controllers/courseAssistantController');
 const { auth, requireRole } = require('../middleware/auth');
 const { requireCourseAssistant } = require('../middleware/courseAssistant');
+const { downloadLimiter } = require('../middleware/rateLimit');
 
 router.use(auth);
 
@@ -19,7 +20,7 @@ router.post('/assistant/assignment/:id/remind', requireRole('student'), requireC
 router.post('/assistant/assignment', requireRole('student'), requireCourseAssistant, courseAssistantController.assistantCreateAssignment);
 router.put('/assistant/assignment/:id', requireRole('student'), requireCourseAssistant, courseAssistantController.assistantUpdateAssignment);
 router.delete('/assistant/assignment/:id', requireRole('student'), requireCourseAssistant, courseAssistantController.assistantDeleteAssignment);
-router.get('/assistant/assignment/:id/download', requireRole('student'), requireCourseAssistant, courseAssistantController.assistantDownloadAll);
+router.get('/assistant/assignment/:id/download', requireRole('student'), requireCourseAssistant, downloadLimiter, courseAssistantController.assistantDownloadAll);
 
 // 所有课程（下拉）
 router.get('/all/list', courseController.allCourses);

@@ -4,6 +4,7 @@
 const express = require('express');
 const router = express.Router();
 const { auth, requireRole } = require('../middleware/auth');
+const { aiLimiter } = require('../middleware/rateLimit');
 const templateCtrl = require('../controllers/gradingTemplateController');
 const taskCtrl = require('../controllers/gradingTaskController');
 const promptCtrl = require('../controllers/gradingPromptController');
@@ -22,7 +23,7 @@ router.post('/templates/:id/clone', requireRole('teacher', 'admin'), templateCtr
 router.patch('/templates/:id/status', requireRole('teacher', 'admin'), templateCtrl.toggleStatus);
 
 // ===== 批改任务 / 结果 / 复核 =====
-router.post('/tasks/batch', requireRole('teacher', 'admin'), taskCtrl.createBatch);
+router.post('/tasks/batch', requireRole('teacher', 'admin'), aiLimiter, taskCtrl.createBatch);
 router.get('/tasks', requireRole('teacher', 'admin'), taskCtrl.taskProgress);
 router.post('/tasks/:id/cancel', requireRole('teacher', 'admin'), taskCtrl.cancelTask);
 // 学生本人/该作业教师/管理员可查（权限在控制器内细分）
