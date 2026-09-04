@@ -18,6 +18,9 @@ client/dist/
 dist/
 build/
 
+# SSL 证书与私钥（仅存在部署服务器上，不入库）
+client/ssl/
+
 # IDE
 .idea/
 .vscode/

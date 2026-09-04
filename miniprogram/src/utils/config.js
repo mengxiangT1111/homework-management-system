@@ -10,7 +10,7 @@
 //      request / uploadFile / downloadFile 三组合法域名
 //   3. manifest.json 的 appid 替换为真实小程序 appid（当前 touristappid 无法发布）
 const DEV_BASE_URL = 'http://127.0.0.1:3000'
-const PROD_BASE_URL = 'https://your-domain.com' // TODO: 上线前替换
+const PROD_BASE_URL = 'https://mengxiangt.top'
 
 function resolveBaseUrl() {
   // H5 端没有 getAccountInfoSync，走开发地址（H5 仅用于本地调试）
