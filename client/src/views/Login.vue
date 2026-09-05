@@ -11,7 +11,7 @@
 
       <el-form ref="formRef" :model="form" :rules="rules" size="large" @submit.prevent="handleLogin">
         <el-form-item prop="school_id">
-          <el-select v-model="form.school_id" placeholder="选择学校（管理员不选）" clearable style="width:100%">
+          <el-select v-model="form.school_id" placeholder="选择学校" clearable style="width:100%">
             <el-option v-for="s in schools" :key="s.id" :label="`${s.name}（${s.code}）`" :value="s.id" />
           </el-select>
         </el-form-item>
