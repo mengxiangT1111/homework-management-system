@@ -51,7 +51,7 @@ services:
       # nginx 反代场景按 X-Forwarded-For 取真实客户端 IP，
       # 否则登录限流会把所有用户算成同一个代理 IP（全局误锁）
       TRUST_PROXY: "1"
-      # 管理员初始账号（seed.prod.js 首次初始化时使用，登录后仍建议修改）
+      # 管理员初始账号（src/seeders/seedProd.js 首次初始化时使用，登录后仍建议修改）
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
       # ===== 可选：AI 批改（留空则 AI 批改功能不可用） =====

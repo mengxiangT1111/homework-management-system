@@ -9,14 +9,12 @@ echo "========================================"
 echo "  在线作业提交管理系统 - 部署脚本"
 echo "========================================"
 
-# 检查 .env.production 是否存在
-if [ ! -f .env.production ]; then
-  echo "✗ 未找到 .env.production，请先创建并修改密码！"
+# 检查生产配置（.env 不入库；从仓库模板 .env.example 复制生成）
+if [ ! -f .env ]; then
+  echo "✗ 未找到 .env，请先从模板创建并修改密码："
+  echo "    cp .env.example .env && vi .env"
   exit 1
 fi
-
-# 复制生产环境变量
-cp .env.production .env
 
 echo ""
 echo "[1/4] 构建并启动所有服务..."
@@ -40,7 +38,7 @@ echo "  ✅ 部署完成！"
 echo "========================================"
 echo ""
 echo "  访问地址：http://你的服务器IP"
-echo "  管理员：admin / admin123（请尽快修改密码）"
+echo "  管理员：admin / .env 中的 ADMIN_PASSWORD（请尽快修改密码）"
 echo ""
 echo "  查看日志：docker compose -f docker-compose.prod.yml logs -f"
 echo "  停止服务：docker compose -f docker-compose.prod.yml down"

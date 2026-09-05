@@ -3,7 +3,7 @@
 基于 uni-app（Vue 3 + Vite）的微信小程序端，与现有 Web 端共用同一套后端 API、数据库与文件存储。
 设计文档见仓库 `docs/小程序设计方案V3.md`，开发执行提示词见 `docs/小程序开发提示词V3.md`。
 
-## 功能范围（P0，13 页）
+## 功能范围（P0，15 页）
 
 - **学生**：登录、首页（统计 + 待交作业）、作业列表/详情、提交作业（拍照/聊天文件上传）、提交记录、AI 批改结果查看、我的班级
 - **教师**：登录、工作台、作业列表（课程/状态筛选）、发布/编辑/关闭作业、作业详情（进度/名单/催交/AI 批改任务发起与进度）、批改打分（文件预览 + AI 结果）、AI 复核队列
@@ -69,7 +69,7 @@ mp.weixin.qq.com → 设置 → 服务内容声明 → 用户隐私保护指引�
 miniprogram/src/
 ├── main.js               # Pinia 注册
 ├── App.vue               # 启动 token 校验 + 全局样式
-├── pages.json            # 13 页路由 + 4 个文字 tabBar
+├── pages.json            # 15 页路由 + 4 个文字 tabBar
 ├── manifest.json         # AppID 等小程序配置
 ├── utils/
 │   ├── config.js         # BASE_URL（环境切换）
@@ -80,7 +80,7 @@ miniprogram/src/
 │   └── badge.js          # 消息角标
 ├── stores/auth.js        # 登录态（Pinia + storage）
 ├── components/empty-state.vue
-└── pages/                # 13 个页面（见 pages.json）
+└── pages/                # 15 个页面（见 pages.json）
 ```
 
 ## 关键实现约定

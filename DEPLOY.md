@@ -10,7 +10,7 @@
 1. **一台云服务器**（阿里云/腾讯云/华为云等均可）
    - 配置：至少 2核 CPU + 2G 内存 + 40G 硬盘
    - 系统：Ubuntu 20.04 / CentOS 7+ / Debian 10+（推荐 Ubuntu）
-   - 安全组/防火墙：**开放 80 端口**（HTTP）
+   - 安全组/防火墙：**开放 80 和 443 端口**（HTTP/HTTPS）
 2. **SSH 连接工具**（如 Xshell、FinalShell、Termius，或直接用终端）
 
 ### 服务器需安装的软件
@@ -80,8 +80,8 @@ cd "C:\Users\13523\Desktop"
 ```bash
 cd /opt/homework   # 或你上传的路径
 
-# 复制生产环境配置模板
-cp .env.production .env
+# 复制生产环境配置模板（.env.example 是仓库里的模板，.env 不入库）
+cp .env.example .env
 
 # 编辑 .env，务必修改密码和密钥！
 vi .env
@@ -128,12 +128,12 @@ hw_frontend     Up             0.0.0.0:80->80/tcp
 
 ```bash
 # 在后端容器内执行初始化脚本
-docker exec hw_backend node seed.prod.js
+docker exec hw_backend node src/seeders/seedProd.js
 ```
 
 输出：
 ```
-✓ 管理员账号已就绪: admin / admin123
+✓ 管理员账号已就绪: admin / <.env 中 ADMIN_PASSWORD>
 ```
 
 > ⚠️ 首次登录后，请立即在「个人中心」修改 admin 密码！
@@ -150,7 +150,7 @@ http://你的服务器公网IP
 
 例如 `http://123.45.67.89`
 
-用 `admin / admin123` 登录，看到管理后台即部署成功！
+用 `admin` + `.env` 里的 `ADMIN_PASSWORD` 登录，看到管理后台即部署成功！
 
 ---
 
@@ -183,31 +183,31 @@ docker-compose -f docker-compose.prod.yml up -d --build    # 重新构建并启�
 
 ---
 
-## 🌐 进阶：绑定域名 + HTTPS（可选但推荐）
+## 🌐 进阶：绑定域名 + HTTPS（项目已内置）
 
-让用户通过 `homework.school.edu.cn` 这样的域名访问，而不是 IP。
+项目已内置 HTTPS：nginx 挂载证书监听 443，80 自动跳转到 HTTPS，无需额外的反代或 Caddy。
 
 ### 1. 域名解析
-到你的域名服务商（阿里云/腾讯云域名控制台），添加 A 记录：
+到域名服务商（阿里云/腾讯云域名控制台），添加 A 记录：
 - 记录类型：A
 - 主机记录：`@`（或 `www`）
-- 记录值：你的服务器公网 IP
+- 记录值：你的服务器公网 IP（域名需已完成 ICP 备案）
 
-### 2. 用 Nginx Proxy Manager（图形化，最简单）
+### 2. 申请证书并放入 client/ssl/
+以腾讯云免费证书为例：控制台申请签发后下载 **Nginx 格式**，得到 `xxx_bundle.crt` 和 `xxx.key`，在服务器上：
 ```bash
-# 在服务器上运行 Nginx Proxy Manager
-docker run -d --name npm \
-  --restart always \
-  -p 80:80 -p 81 -p 443:443 \
-  -v /opt/npm/data:/data -v /opt/npm/letsencrypt:/etc/letsencrypt \
-  jc21/nginx-proxy-manager:latest
+mkdir -p client/ssl
+cp xxx_bundle.crt client/ssl/server.crt
+cp xxx.key          client/ssl/server.key
 ```
-> 注意：这会占用 80 端口，需先把 homework 的前端端口改成其他（如 8080），然后在 NPM 反代。
+> `client/ssl/` 已被 .gitignore 排除，证书只放在服务器上，不入库。
 
-### 2. 或直接用 Caddy（自动申请 HTTPS 证书）
-```bash
-# docker-compose.prod.yml 里增加 caddy 服务（见下方"绑定域名配置"）
-```
+### 3. 配置域名并重建
+- `client/nginx.conf` 中两处 `server_name` 改为你的域名
+- 云控制台防火墙/安全组放行 **TCP 80 和 443**
+- 重建前端：`docker compose -f docker-compose.prod.yml up -d --build frontend`
+
+免费证书有效期约 3 个月，到期后重新申请、覆盖 `client/ssl/` 里的两个文件，然后 `docker compose -f docker-compose.prod.yml restart frontend` 即可。
 
 ---
 
@@ -234,7 +234,7 @@ docker logs hw_backend
 ```bash
 docker-compose -f docker-compose.prod.yml down -v   # ⚠️ 会清空所有数据
 docker-compose -f docker-compose.prod.yml --env-file .env up -d --build
-docker exec hw_backend node seed.prod.js            # 重新初始化
+docker exec hw_backend node src/seeders/seedProd.js    # 重新初始化
 ```
 
 ### Q5: 服务器重启后服务没了？
@@ -290,9 +290,9 @@ crontab -e
 
 ```bash
 cd /opt/homework
-cp .env.production .env && vi .env                    # 1. 改密码
+cp .env.example .env && vi .env                        # 1. 改密码
 docker-compose -f docker-compose.prod.yml up -d --build  # 2. 构建启动
-docker exec hw_backend node seed.prod.js              # 3. 建管理员
+docker exec hw_backend node src/seeders/seedProd.js   # 3. 建管理员
 # 4. 浏览器访问 http://服务器IP  ✓
 ```
 

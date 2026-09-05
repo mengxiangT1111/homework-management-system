@@ -15,13 +15,13 @@ const fs = require('fs');
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
 
-const { PromptVersion, PromptRouting } = require('../models');
-const promptService = require('../services/prompt.service');
-const templateService = require('../services/grading/template.service');
-const llmClient = require('../services/grading/llmClient');
+const { PromptVersion, PromptRouting } = require('../src/models');
+const promptService = require('../src/services/prompt.service');
+const templateService = require('../src/services/grading/template.service');
+const llmClient = require('../src/services/grading/llmClient');
 const {
   safeParseJSON, parseGradingOutput, computeTotalScore
-} = require('../utils/gradingResultParser');
+} = require('../src/utils/gradingResultParser');
 
 function pearson(xs, ys) {
   const n = xs.length;
