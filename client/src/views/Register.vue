@@ -37,6 +37,12 @@
           <el-input v-model="form.email" placeholder="邮箱（选填）" :prefix-icon="Message" />
         </el-form-item>
 
+        <el-form-item prop="agree">
+          <el-checkbox v-model="form.agree" class="auth-agreement">
+            我已阅读并同意<a class="link" href="/privacy" target="_blank">《用户隐私保护指引》</a>
+          </el-checkbox>
+        </el-form-item>
+
         <el-button type="primary" size="large" class="submit-btn" :loading="loading" @click="handleRegister">
           注 册
         </el-button>
@@ -48,6 +54,7 @@
       </div>
 
       <p class="auth-copyright">信衡 XINHENG · 让每一分都可信</p>
+      <a class="auth-beian" href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">鲁ICP备2026049690号</a>
       </div>
     </div>
   </div>
@@ -71,8 +78,13 @@ const schools = ref([])
 
 const form = reactive({
   school_id: null, username: '', real_name: '', password: '', confirmPassword: '',
-  role: 'student', email: ''
+  role: 'student', email: '', agree: false
 })
+
+const validateAgree = (rule, value, callback) => {
+  if (value) callback()
+  else callback(new Error('请阅读并同意《用户隐私保护指引》'))
+}
 
 const validatePass2 = (rule, value, callback) => {
   if (value !== form.password) callback(new Error('两次输入的密码不一致'))
@@ -94,7 +106,8 @@ const rules = {
     { required: true, message: '请确认密码', trigger: 'blur' },
     { validator: validatePass2, trigger: 'blur' }
   ],
-  role: [{ required: true, message: '请选择角色', trigger: 'change' }]
+  role: [{ required: true, message: '请选择角色', trigger: 'change' }],
+  agree: [{ validator: validateAgree, trigger: 'change' }]
 }
 
 async function handleRegister() {

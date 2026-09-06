@@ -5,6 +5,8 @@ const routes = [
   { path: '/', redirect: '/login' },
   { path: '/login', name: 'Login', component: () => import('@/views/Login.vue'), meta: { guest: true } },
   { path: '/register', name: 'Register', component: () => import('@/views/Register.vue'), meta: { guest: true } },
+  // 用户隐私保护指引：公开页面，无需登录即可查看
+  { path: '/privacy', name: 'PrivacyPolicy', component: () => import('@/views/PrivacyPolicy.vue') },
 
   // 学生端
   {

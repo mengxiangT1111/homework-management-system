@@ -41,6 +41,8 @@ logs/
 *.tmp
 *.temp
 .cache/
+~$*
+docs/~$*
 
 # 本地 AI 辅助规划文件（不随仓库发布）
 .zcode/

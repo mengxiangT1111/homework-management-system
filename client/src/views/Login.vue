@@ -28,12 +28,15 @@
         </el-button>
       </el-form>
 
+      <p class="auth-agree-hint">登录即代表您已阅读并同意<a class="link" href="/privacy" target="_blank">《用户隐私保护指引》</a></p>
+
       <div class="auth-footer">
         <span>还没有账号？</span>
         <router-link to="/register" class="link">立即注册</router-link>
       </div>
 
       <p class="auth-copyright">信衡 XINHENG · 让每一分都可信</p>
+      <a class="auth-beian" href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">鲁ICP备2026049690号</a>
       </div>
     </div>
   </div>

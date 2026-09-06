@@ -405,6 +405,13 @@ a { color: inherit; text-decoration: none; }
 /* ---- 表单控件：圆角、聚焦绿色光环 ---- */
 .auth-box .el-form-item { margin-bottom: 18px; }
 .auth-box .el-form-item:last-of-type { margin-bottom: 6px; }
+/* 最后一个表单项（注册页同意勾选/登录页密码）下方仅 6px 间距，
+   绝对定位的校验提示会被提交按钮遮挡——改为占位排版，出现时自动撑开 */
+.auth-box .el-form-item:last-of-type .el-form-item__error {
+  position: static;
+  width: 100%;
+  padding-top: 3px;
+}
 
 .auth-box .el-input--large .el-input__wrapper {
   border-radius: 12px;
@@ -471,6 +478,33 @@ a { color: inherit; text-decoration: none; }
 }
 .auth-footer .link:hover { text-decoration: underline; }
 
+/* 隐私保护指引：登录提示 / 注册同意勾选 */
+.auth-agree-hint {
+  text-align: center;
+  margin-top: 14px;
+  margin-bottom: 0;
+  font-size: 12.5px;
+  color: var(--ink-500);
+}
+.auth-agree-hint .link {
+  color: #00794e;
+  font-weight: 550;
+}
+.auth-agree-hint .link:hover { text-decoration: underline; }
+
+.auth-agreement { height: auto; }
+.auth-agreement .el-checkbox__label {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink-600);
+  white-space: normal;
+}
+.auth-agreement .link {
+  color: #00794e;
+  font-weight: 550;
+}
+.auth-agreement .link:hover { text-decoration: underline; }
+
 .auth-copyright {
   text-align: center;
   margin-top: 28px;
@@ -479,6 +513,17 @@ a { color: inherit; text-decoration: none; }
   letter-spacing: 0.02em;
   color: var(--ink-400);
 }
+
+/* ICP 备案号：按工信部要求展示于网站底部并链接至备案管理系统 */
+.auth-beian {
+  display: block;
+  text-align: center;
+  margin-top: 6px;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: var(--ink-400);
+}
+.auth-beian:hover { color: var(--ink-600); }
 
 @media (max-width: 900px) {
   /* 单列模式：品牌面板隐藏，恢复浅绿渐变底 */
