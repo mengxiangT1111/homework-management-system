@@ -33,6 +33,9 @@ async function start() {
     const { startScheduler } = require('./utils/notificationScheduler');
     startScheduler();
 
+    // 操作审计日志：定时清理（保留期+行数上限，防止日志表堆满数据库）
+    require('./services/operationLog.service').scheduleOpLogCleanup();
+
     // AI 智能批改：提示词版本库播种 + 异步队列 worker 启动
     const promptService = require('./services/prompt.service');
     await promptService.ensureSeeded();

@@ -154,7 +154,8 @@ const menuConfig = {
       { path: '/admin/schools', title: '学校管理', icon: 'OfficeBuilding' },
       { path: '/admin/users', title: '用户管理', icon: 'UserFilled' },
       { path: '/admin/courses', title: '课程管理', icon: 'Reading' },
-      { path: '/admin/cleanup', title: '文件清理', icon: 'Delete' }
+      { path: '/admin/cleanup', title: '文件清理', icon: 'Delete' },
+      { path: '/admin/operation-logs', title: '操作日志', icon: 'Memo' }
     ] },
     { label: '通用', items: [
       { path: '/admin/notifications', title: '消息通知', icon: 'Bell' },

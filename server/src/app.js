@@ -4,6 +4,9 @@ const morgan = require('morgan');
 const helmet = require('helmet');
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
+// 运行日志落盘+轮转（拦截 console.* 双写文件，需在其他模块打印日志前加载）
+const logger = require('./utils/logger');
+const auditLog = require('./middleware/auditLog');
 
 const { sequelize } = require('./models');
 
@@ -33,7 +36,8 @@ app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// 访问日志：对 query 中的凭证参数（token/st）脱敏，防止 JWT/票据进日志文件
+// 访问日志：对 query 中的凭证参数（token/st）脱敏，防止 JWT/票据进日志文件；
+// 经 logger.accessStream 双写：控制台输出 + 落盘文件（自动轮转/清理）
 app.use(morgan((tokens, req, res) => {
   const url = (tokens.url(req, res) || '')
     .replace(/([?&])(token|st)=[^&]*/gi, '$1$2=***');
@@ -44,7 +48,11 @@ app.use(morgan((tokens, req, res) => {
     tokens['response-time'](req, res), 'ms -',
     tokens.res(req, res, 'content-length')
   ].join(' ');
-}));
+}, { stream: logger.accessStream }));
+
+// ===== 操作审计 =====
+// 自动记录所有变更类请求（POST/PUT/PATCH/DELETE），详见 middleware/auditLog.js
+app.use('/api', auditLog);
 
 // ===== 上传文件鉴权下载 =====
 // 原 /uploads/:yearMonth/:filename 静态路由只验证登录不校验文件归属（任意登录用户
@@ -68,6 +76,7 @@ app.use('/api/files', require('./routes/files'));
 app.use('/api/schools', require('./routes/schools'));
 app.use('/api/plagiarism', require('./routes/plagiarism'));
 app.use('/api/grading', require('./routes/grading'));
+app.use('/api/operation-logs', require('./routes/operationLogs'));
 
 // 健康检查
 app.get('/api/health', (req, res) => {

@@ -165,6 +165,8 @@ docker-compose -f docker-compose.prod.yml logs -f          # 全部
 docker logs hw_backend -f --tail 100                        # 只看后端
 docker logs hw_frontend -f --tail 100                       # 只看前端
 docker logs hw_mysql -f --tail 100                          # 只看数据库
+# 后端容器内还有落盘日志（自动轮转清理，挂载在 backend_logs 卷）：
+docker exec hw_backend sh -c 'tail -100 logs/$(ls logs | tail -1)'
 
 # 重启某个服务
 docker-compose -f docker-compose.prod.yml restart backend
@@ -213,6 +215,22 @@ cp xxx.key          client/ssl/server.key
 免费证书有效期约 3 个月，到期后重新申请、覆盖 `client/ssl/` 里的两个文件，然后 `docker compose -f docker-compose.prod.yml restart frontend` 即可。
 
 ---
+
+## 📜 日志与操作审计（已内置存储保护，不会堆满磁盘）
+
+系统包含两类日志，均已配置自动清理上限，无需人工维护：
+
+**1. 运行日志（文件落盘 + 容器 stdout 双写）**
+- 后端访问日志/运行日志自动写入容器内 `logs/app-日期.log`（挂载在 `backend_logs` 卷，重建容器不丢失）
+- 自动轮转：单文件超 20MB、跨天、目录总量超 200MB、文件超 14 天均自动处理
+- 容器 stdout 日志由 Docker json-file 驱动采集，每个容器限 10MB × 3 份
+- 可在 `server/.env` 调整：`LOG_RETENTION_DAYS`（默认14）、`LOG_MAX_MB`（默认200）、`LOG_MAX_FILE_MB`（默认20）、`LOG_FILE_ENABLED=0`（关闭落盘）
+
+**2. 操作审计日志（数据库表 `operation_logs`，管理员后台「操作日志」页可查）**
+- 自动记录所有变更类操作：登录（含失败）、账号管理、作业发布/批改、查重、文件清理等，含操作人、IP、参数摘要（口令/令牌自动脱敏）
+- 自动清理：每天凌晨删除超过 180 天的记录；总条数超过 20 万时从最旧开始删（防刷接口撑爆）
+- 可在 `server/.env` 调整：`OPLOG_RETENTION_DAYS`（默认180）、`OPLOG_MAX_ROWS`（默认200000）
+- 管理员也可在「操作日志」页手动执行清理
 
 ## ❓ 常见部署问题
 

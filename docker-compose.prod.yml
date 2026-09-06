@@ -25,6 +25,12 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    # 容器标准输出日志容量上限（防止 json-file 日志无限增长堆满磁盘）
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       - hw_net
 
@@ -78,6 +84,14 @@ services:
       DETECTION_API_TOKEN: ${DETECTION_API_TOKEN:-}
     volumes:
       - backend_uploads:/app/uploads
+      # 运行日志（访问/错误日志落盘文件，容器内自动轮转清理）持久化到宿主机
+      - backend_logs:/app/logs
+    # 容器标准输出日志容量上限（防止 json-file 日志无限增长堆满磁盘）
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       - hw_net
 
@@ -93,12 +107,19 @@ services:
       - "443:443"
     volumes:
       - ./client/ssl:/etc/nginx/ssl:ro
+    # 容器标准输出日志容量上限（nginx access/error 日志走容器 stdout/stderr）
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       - hw_net
 
 volumes:
   mysql_data:
   backend_uploads:
+  backend_logs:
 
 networks:
   hw_net:

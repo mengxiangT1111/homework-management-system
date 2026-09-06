@@ -16,6 +16,7 @@ const UploadRecord = require('./UploadRecord');
 const ChunkOwnership = require('./ChunkOwnership');
 const Todo = require('./Todo');
 const TodoCompletion = require('./TodoCompletion');
+const OperationLog = require('./OperationLog');
 
 // AI 智能批改模块
 const {
@@ -151,6 +152,7 @@ module.exports = {
   ChunkOwnership,
   Todo,
   TodoCompletion,
+  OperationLog,
   GradingTemplate,
   GradingDimension,
   DimensionRubric,

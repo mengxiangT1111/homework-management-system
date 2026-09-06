@@ -176,6 +176,13 @@ export const statsApi = {
   cleanupRun: (data) => request.post('/stats/cleanup/run', data)
 }
 
+// ===== 操作审计日志 =====
+export const operationLogApi = {
+  list: (params) => request.get('/operation-logs', { params }),
+  meta: () => request.get('/operation-logs/meta'),
+  cleanup: () => request.post('/operation-logs/cleanup')
+}
+
 // ===== 上传 =====
 export const uploadApi = {
   check: (hash) => request.get('/upload/check', { params: { hash } }),
