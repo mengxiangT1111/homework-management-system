@@ -134,7 +134,7 @@
     </el-dialog>
 
     <!-- 预览组件 -->
-    <FilePreview v-model="previewVisible" :file-path="previewPath" :file-name="previewName" />
+    <FilePreview v-model="previewVisible" :file-path="previewPath" :file-name="previewName" :file-size="previewSize" />
 
     <!-- 查重详情对话框 -->
     <PlagiarismDetail
@@ -337,7 +337,6 @@ import { ArrowLeft, Document, MagicStick, Tickets, EditPen, ChatDotRound, Warnin
 import FilePreview from '@/components/FilePreview.vue'
 import PlagiarismDetail from '@/components/PlagiarismDetail.vue'
 import { assignmentApi, submissionApi, downloadFile, plagiarismApi, aiApi, gradingApi } from '@/api'
-import { resolveFileUrl, isCOS } from '@/utils/fileUrl'
 
 const route = useRoute()
 const data = ref(null)
@@ -349,6 +348,7 @@ const gradeForm = reactive({ score: 0, comment: '', status: 'graded' })
 const previewVisible = ref(false)
 const previewPath = ref('')
 const previewName = ref('')
+const previewSize = ref(null)
 
 const plagiarismVisible = ref(false)
 const plagiarismSubmissionId = ref(null)
@@ -446,18 +446,14 @@ async function saveGrade() {
 function previewFile(f) {
   previewPath.value = f.file_path
   previewName.value = f.original_name
+  previewSize.value = f.file_size ?? null
   previewVisible.value = true
 }
 
-async function downloadF(f) {
-  if (isCOS(f.file_path)) {
-    const u = await resolveFileUrl(f.file_path)
-    if (u) window.open(u, '_blank')
-  } else {
-    // 本地文件必须走带 Authorization 的授权下载接口；
-    // 旧 /uploads 静态路由已下线，走它会在生产拿到 index.html（SPA fallback）
-    downloadFile('/api/files/download?path=' + encodeURIComponent(f.file_path), f.original_name)
-  }
+function downloadF(f) {
+  // 本地与 COS 文件统一走带 Authorization 的授权下载接口（XHR blob 保存）；
+  // COS 不再 window.open 签名 URL（桶强制下载且头部不可控）
+  downloadFile('/api/files/download?path=' + encodeURIComponent(f.file_path), f.original_name)
 }
 
 function downloadAll() {

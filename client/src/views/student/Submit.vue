@@ -103,7 +103,7 @@
     </div>
 
     <!-- 预览组件 -->
-    <FilePreview v-model="previewVisible" :file-path="previewPath" :file-name="previewName" />
+    <FilePreview v-model="previewVisible" :file-path="previewPath" :file-name="previewName" :file-size="previewSize" />
 
     <!-- 视频样例放大播放 -->
     <el-dialog v-model="videoPreview.visible" :title="videoPreview.name" width="960px" top="5vh" destroy-on-close append-to-body>
@@ -131,6 +131,7 @@ const submitting = ref(false)
 const previewVisible = ref(false)
 const previewPath = ref('')
 const previewName = ref('')
+const previewSize = ref(null)
 const uploaderRef = ref(null)
 
 function formatTime(t) {
@@ -145,7 +146,7 @@ function formatSize(b) {
 
 // 样例文件 URL：需经 /api/files/urls 换取短时效票据（标签无法带 Authorization 头），
 // 作业详情加载后批量解析进 map，模板同步读取
-import { resolveFileUrls, resolveFileUrl, isCOS } from '@/utils/fileUrl'
+import { resolveFileUrls } from '@/utils/fileUrl'
 import { computed } from 'vue'
 
 const sampleUrlMap = ref({})
@@ -183,7 +184,7 @@ async function loadData() {
   if (res.data.my_submission) {
     mySubmission.value = res.data.my_submission
   }
-  // 批量解析样例文件访问 URL（COS 为签名 URL，本地为短时效票据 URL）
+  // 批量解析样例文件访问 URL（统一为本站短时效票据 URL，COS 由后端代理）
   const samples = res.data.sample_files || []
   if (samples.length > 0) {
     sampleUrlMap.value = await resolveFileUrls(samples.map(s => s && s.url).filter(Boolean))
@@ -218,23 +219,20 @@ async function doSubmit() {
 function previewFile(f) {
   previewPath.value = f.file_path
   previewName.value = f.original_name
+  previewSize.value = f.file_size ?? null
   previewVisible.value = true
 }
 
-async function downloadF(f) {
-  if (isCOS(f.file_path)) {
-    const u = await resolveFileUrl(f.file_path)
-    if (u) window.open(u, '_blank')
-  } else {
-    // 本地文件必须走带 Authorization 的授权下载接口；
-    // 旧 /uploads 静态路由已下线，走它会在生产拿到 index.html（SPA fallback）
-    downloadFile('/api/files/download?path=' + encodeURIComponent(f.file_path), f.original_name)
-  }
+function downloadF(f) {
+  // 本地与 COS 文件统一走带 Authorization 的授权下载接口（XHR blob 保存）；
+  // 旧 /uploads 静态路由已下线；COS 不再 window.open 签名 URL（桶强制下载且头部不可控）
+  downloadFile('/api/files/download?path=' + encodeURIComponent(f.file_path), f.original_name)
 }
 
 function previewSample(s) {
   previewPath.value = s.url
   previewName.value = s.name || '样例文件'
+  previewSize.value = null
   previewVisible.value = true
 }
 

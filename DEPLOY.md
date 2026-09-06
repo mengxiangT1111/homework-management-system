@@ -181,6 +181,9 @@ git pull                        # 拉取新代码
 docker-compose -f docker-compose.prod.yml up -d --build    # 重新构建并启动
 ```
 
+> 💡 后端镜像内置了 LibreOffice（doc/xls/ppt/pptx 在线预览的转换引擎）与中文字体，
+> 首次构建后端镜像会多下载约 400MB（国内已配腾讯云源加速），属正常现象。
+
 ---
 
 ## 🌐 进阶：绑定域名 + HTTPS（项目已内置）

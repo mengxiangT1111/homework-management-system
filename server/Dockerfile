@@ -11,6 +11,13 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install --production
 
+# LibreOffice：doc/xls/ppt/pptx 在线预览的转换引擎（officeConverter.js 调用）；
+# font-noto-cjk 中文字体必须安装，否则转出的 PDF 中文全是方框。
+# 国内服务器构建先换腾讯云 Alpine 源加速（海外部署可删掉 sed 那行）
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.tencent.com/g' /etc/apk/repositories \
+    && apk add --no-cache libreoffice-writer libreoffice-calc libreoffice-impress font-noto-cjk \
+    && rm -rf /var/cache/apk/*
+
 # 拷贝源码
 COPY . .
 

@@ -198,6 +198,15 @@ export const plagiarismApi = {
   deleteResults: (assignmentId, submissionId) => request.delete(`/plagiarism/results/${assignmentId}/${submissionId}`)
 }
 
+// ===== 文件预览/下载 =====
+export const filesApi = {
+  // 文档在线预览（docx/xlsx/txt 等由后端转成 HTML/文本；图片/PDF/音视频走 download 票据 URL）
+  preview: (path) => request.get('/files/preview', { params: { path }, timeout: 60000 }),
+  // Office 旧格式（doc/xls/ppt/pptx）：后端 LibreOffice 转 PDF 后直接流式返回二进制，
+  // 首次转换可能较慢，超时放宽
+  previewBlob: (path) => request.get('/files/preview', { params: { path }, responseType: 'blob', timeout: 150000 })
+}
+
 // 下载工具（带 token）
 export function downloadFile(url, filename) {
   const token = localStorage.getItem('token')

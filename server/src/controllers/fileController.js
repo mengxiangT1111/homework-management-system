@@ -10,10 +10,15 @@ const { Op, Sequelize } = require('sequelize');
 const { SubmissionFile, Submission, Assignment, Course, ClassStudent } = require('../models');
 const { success, fail } = require('../utils/response');
 const {
-  isCOSConfigured, getSignedCOSUrl, headObject
+  isCOSConfigured, headObject, cosClient, cosConfig
 } = require('../config/cos');
-const { isCOSPath, extractCOSKey } = require('../utils/fileStorage').helpers;
+const { isCOSPath, extractCOSKey, ensureLocalFile } = require('../utils/fileStorage').helpers;
 const { signTicket } = require('../utils/downloadTicket');
+const previewService = require('../utils/previewService');
+const officeConverter = require('../utils/officeConverter');
+
+// 需要 LibreOffice 转 PDF 才能预览的格式（响应为 application/pdf 二进制流）
+const OFFICE_EXTS = new Set(['.doc', '.xls', '.ppt', '.pptx']);
 
 const UPLOAD_ROOT = path.resolve(path.join(__dirname, '../../', process.env.UPLOAD_DIR || 'uploads'));
 
@@ -110,12 +115,23 @@ exports.download = async (req, res, next) => {
         return fail(res, '非法路径', 403);
       }
       try {
-        await headObject(key); // 校验对象存在（404 提前暴露）
+        await headObject(key); // 校验对象存在（404 提前暴露），顺带拿到大小
       } catch (e) {
         return fail(res, '文件不存在', 404);
       }
-      // 短时效签名 URL（10 分钟），限制 URL 泄露后的可利用窗口
-      return res.redirect(getSignedCOSUrl(key, 600));
+      // 服务端代理流式转发，不再 302 到 COS 签名 URL：
+      // 桶开启"强制下载"后 COS 会对 GET 强加 Content-Disposition: attachment
+      // （x-cos-force-download: true，且 response-content-disposition 覆盖参数压不过它），
+      // 302 会让 iframe 预览一律变成下载。代理时头部由本服务决定，与本地文件同一套
+      // 白名单口径；预签名 URL 也不再暴露给浏览器，泄露面更小。
+      // 代价是流量经服务器转发（视频拖动进度条不支持 Range，从头缓冲）。
+      const ext = path.extname(key).toLowerCase();
+      const inlineType = INLINE_TYPES[ext];
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Content-Type', inlineType || 'application/octet-stream');
+      res.setHeader('Content-Disposition',
+        `${inlineType ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(path.basename(key))}`);
+      return proxyCOSObject(key, res);
     }
 
     // 本地文件：路径限定在 uploads 目录内
@@ -146,10 +162,127 @@ exports.download = async (req, res, next) => {
 };
 
 /**
+ * 在线预览（文档转换）：GET /api/files/preview?path=xxx
+ * 鉴权与 download 完全同构（Authorization 头或 ?st= 短时效票据 + 同一套归属校验）。
+ * 响应按格式分流：
+ *   - docx/xlsx/txt 等：JSON { kind, html/text }（原生转换，快）
+ *   - doc/xls/ppt/pptx：直接流式下发转换出的 PDF（LibreOffice，首次较慢），
+ *     前端按 blob 读取后塞进 iframe（axios 需 responseType:'blob'）
+ * 图片/PDF/音视频由 download 端点以 inline 方式直接下发，不走本端点。
+ */
+exports.preview = async (req, res, next) => {
+  try {
+    const p = String(req.query.path || '').trim();
+    if (!p) return fail(res, '缺少 path 参数', 422);
+    if (p.includes('..')) return fail(res, '非法路径', 403);
+
+    const allowed = req.ticketAuthorized || await canAccessPath(req.user, p);
+    if (!allowed) return fail(res, '无权访问该文件', 403);
+
+    const extLower = path.extname(p).toLowerCase();
+    // COS 文件：先物化到本地临时目录再转换，用完即删
+    let absPath = null;
+    let tempFile = null;
+    try {
+      if (isCOSPath(p)) {
+        if (!isCOSConfigured) return fail(res, '文件存储未配置', 404);
+        const key = extractCOSKey(p);
+        if (!key || key.includes('..') || !key.startsWith('homeworks/')) {
+          return fail(res, '非法路径', 403);
+        }
+        absPath = await ensureLocalFile(p);
+        tempFile = absPath;
+      } else {
+        let rel = p;
+        if (rel.startsWith('uploads/') || rel.startsWith('uploads\\')) rel = rel.substring(8);
+        absPath = path.resolve(path.join(UPLOAD_ROOT, rel));
+        if (absPath !== UPLOAD_ROOT && !absPath.startsWith(UPLOAD_ROOT + path.sep)) {
+          return fail(res, '禁止访问', 403);
+        }
+        if (!fs.existsSync(absPath)) return fail(res, '文件不存在', 404);
+      }
+
+      // Office 旧格式：LibreOffice 转 PDF 后内联流式下发
+      if (OFFICE_EXTS.has(extLower)) {
+        const pdfPath = await officeConverter.convertToPdf(absPath, p);
+        return streamPdfFile(res, pdfPath);
+      }
+
+      try {
+        const data = await previewService.getPreview(
+          absPath, extLower, `${p}|${extLower}`
+        );
+        return success(res, data, '转换成功');
+      } catch (err) {
+        // docx/xlsx 原生解析崩溃（损坏/特殊排版）时降级走 LibreOffice 转 PDF，
+        // 有转换服务就能预览；没有则明确提示
+        if ((!err.status || err.status >= 500) && (extLower === '.docx' || extLower === '.xlsx')) {
+          try {
+            const pdfPath = await officeConverter.convertToPdf(absPath, p);
+            return streamPdfFile(res, pdfPath);
+          } catch (e2) {
+            return fail(res, '文档解析失败，请下载查看', 422);
+          }
+        }
+        throw err;
+      }
+    } finally {
+      if (tempFile) previewService.removeTempFile(tempFile);
+    }
+  } catch (err) {
+    if (err.code === 'ENOENT') return fail(res, '文件不存在', 404);
+    if (err.status) return fail(res, err.message, err.status);
+    next(err);
+  }
+};
+
+/** 以 application/pdf inline 方式流式下发转换产物 */
+function streamPdfFile(res, pdfPath) {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', 'inline');
+  const stream = fs.createReadStream(pdfPath);
+  stream.on('error', () => {
+    if (!res.headersSent) return fail(res, '读取转换结果失败', 500);
+    res.end();
+  });
+  return stream.pipe(res);
+}
+
+/** COS 对象代理转发：SDK 直接把对象流写进响应，失败时尽早回错 */
+function proxyCOSObject(key, res) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = () => { if (!settled) { settled = true; resolve(); } };
+    const { PassThrough } = require('stream');
+    const proxy = new PassThrough();
+    cosClient.getObject({
+      Bucket: cosConfig.Bucket,
+      Region: cosConfig.Region,
+      Key: key,
+      Output: proxy
+    }, (err) => {
+      if (err && !res.headersSent) {
+        fail(res, '文件读取失败', 502);
+      }
+      if (err) done(); // 已开始响应后出错只能截断
+    });
+    proxy.on('error', () => {
+      if (!res.headersSent) fail(res, '文件读取失败', 502);
+      else res.end();
+      done();
+    });
+    res.on('close', done);
+    proxy.pipe(res).on('finish', done);
+  });
+}
+
+/**
  * 批量解析文件 URL（POST /api/files/urls { paths: [...] }）
  * 与 download 使用同一套归属校验，未授权的 path 返回 null。
- * 本地文件返回带短时效票据（st）的下载 URL；COS 文件返回短时效签名 URL。
- * 均不再把长期 JWT 拼进 URL（避免 token 进日志/浏览器历史）。
+ * 本地与 COS 文件统一返回带短时效票据（st）的下载 URL：iframe/img/video 标签
+ * 直接加载本站代理地址（COS 桶开启"强制下载"后签名 URL 会强加 attachment，
+ * 预览必挂，见 download 内注释），不再把 COS 签名 URL 或长期 JWT 暴露给浏览器。
  */
 exports.resolveUrls = async (req, res, next) => {
   try {
@@ -161,16 +294,16 @@ exports.resolveUrls = async (req, res, next) => {
     for (const p of paths) {
       const allowed = await canAccessPath(req.user, p);
       if (!allowed) { result[p] = null; continue; }
+      let ok = true;
       if (isCOSPath(p)) {
         const key = extractCOSKey(p);
-        // 前缀围栏与 download 端点对齐：仅允许 homeworks/ 内的对象签名，
-        // 防止对桶内其他前缀（备份、配置等）签发预签名 URL
-        result[p] = (isCOSConfigured && key && !key.includes('..') && key.startsWith('homeworks/'))
-          ? getSignedCOSUrl(key, 3600)
-          : null;
-      } else {
-        result[p] = `/api/files/download?path=${encodeURIComponent(p)}&st=${encodeURIComponent(signTicket(p))}`;
+        // 前缀围栏与 download 端点对齐：仅允许 homeworks/ 内的对象，
+        // 防止对桶内其他前缀（备份、配置等）签发访问凭证
+        ok = isCOSConfigured && key && !key.includes('..') && key.startsWith('homeworks/');
       }
+      result[p] = ok
+        ? `/api/files/download?path=${encodeURIComponent(p)}&st=${encodeURIComponent(signTicket(p))}`
+        : null;
     }
     return success(res, result, '获取成功');
   } catch (err) {

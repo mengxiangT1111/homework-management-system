@@ -1,9 +1,10 @@
 /**
  * 文件路径转可访问 URL
- * 统一走后端授权下载接口 /api/files/download：
+ * 统一走后端授权下载接口 /api/files/download（本站代理，本地与 COS 同一套）：
  *   - 先经 POST /api/files/urls（Header 鉴权 + 归属校验）换取与 path 绑定的
  *     短时效票据（st，10 分钟），再用于 iframe/img/video 标签加载；
- *   - 后端对 COS 文件返回短时效签名 URL；
+ *   - 后端代理时按扩展名白名单决定 inline/attachment（COS 桶开启"强制下载"
+ *     后签名 URL 会强加 attachment，导致 iframe 预览变下载，故不再跳转 COS）；
  *   - 未授权的 path 解析结果为空串。
  *
  * 安全说明：此前把 7 天有效期的完整 JWT 拼进 ?token=，会进入访问日志、浏览器

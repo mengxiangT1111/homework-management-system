@@ -23,6 +23,21 @@ router.get('/download', (req, res, next) => {
   next();
 }, auth, fileController.download);
 
+// 文档在线预览（docx/xlsx/txt → HTML/文本转换）：鉴权口径与 download 完全一致，
+// 正常走 axios 的 Authorization 头；?st= 票据仅为与 download 对称保留
+router.get('/preview', (req, res, next) => {
+  const st = req.query.st;
+  if (st && !req.headers.authorization) {
+    const p = String(req.query.path || '');
+    if (verifyTicket(p, String(st))) {
+      req.ticketAuthorized = true;
+      return fileController.preview(req, res, next);
+    }
+    return res.status(401).json({ code: 401, success: false, message: '预览凭证无效或已过期，请刷新页面重试', data: null });
+  }
+  next();
+}, auth, fileController.preview);
+
 // 批量获取文件访问URL（Header 鉴权）
 router.use(auth);
 router.post('/urls', fileController.resolveUrls);
