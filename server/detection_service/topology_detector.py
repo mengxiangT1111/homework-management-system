@@ -478,6 +478,14 @@ class TopologyDetector:
                 result['details']['cand_nodes'] = [
                     {'id': n.id, 'type': n.type, 'label': n.label} for n in cand_fp['nodes']
                 ]
+                # 双拓扑可视化：完整边列表（前端 TopologyComparison 画图用，
+                # 与 src_nodes/cand_nodes 配套；旧数据无此字段时前端只画节点）
+                result['details']['src_edges'] = [
+                    {'source': e.source, 'target': e.target} for e in src_fp['edges_list']
+                ]
+                result['details']['cand_edges'] = [
+                    {'source': e.source, 'target': e.target} for e in cand_fp['edges_list']
+                ]
 
         except Exception as e:
             print(f"图结构比对失败: {e}")

@@ -34,6 +34,9 @@ router.post('/check/:assignmentId/:submissionId', plagiarismLimiter, plagiarismC
 // 获取某次提交的查重结果
 router.get('/results/:assignmentId/:submissionId', plagiarismController.getPlagiarismResults);
 
+// 获取单对比对的双拓扑可视化数据（节点+边+匹配详情）
+router.get('/results/:assignmentId/:submissionId/topology/:comparedWithId', plagiarismController.getTopologyComparison);
+
 // 获取某次提交的最高相似度
 router.get('/max-score/:assignmentId/:submissionId', plagiarismController.getMaxPlagiarismScore);
 

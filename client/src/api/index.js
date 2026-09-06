@@ -200,6 +200,8 @@ export const plagiarismApi = {
   taskStatus: (assignmentId) => request.get(`/plagiarism/task/status/${assignmentId}`),
   taskCancel: (assignmentId) => request.post(`/plagiarism/task/cancel/${assignmentId}`),
   results: (assignmentId, submissionId) => request.get(`/plagiarism/results/${assignmentId}/${submissionId}`),
+  // 单对比对的双拓扑可视化数据（节点+边+匹配详情）
+  topology: (assignmentId, submissionId, comparedWithId) => request.get(`/plagiarism/results/${assignmentId}/${submissionId}/topology/${comparedWithId}`),
   maxScore: (assignmentId, submissionId) => request.get(`/plagiarism/max-score/${assignmentId}/${submissionId}`),
   assignmentSummary: (assignmentId) => request.get(`/plagiarism/assignment-summary/${assignmentId}`),
   deleteResults: (assignmentId, submissionId) => request.delete(`/plagiarism/results/${assignmentId}/${submissionId}`)

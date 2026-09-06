@@ -374,6 +374,71 @@ exports.getPlagiarismResults = async (req, res, next) => {
 };
 
 /**
+ * 获取单对比对的双拓扑可视化数据
+ * GET /api/plagiarism/results/:assignmentId/:submissionId/topology/:comparedWithId
+ * 返回该对比对的图结构（节点+边）、匹配详情与各维度得分，供前端 TopologyComparison 渲染；
+ * 旧数据（details 未存边列表）返回节点数据，前端自动降级为只画节点。
+ */
+exports.getTopologyComparison = async (req, res, next) => {
+  try {
+    const { assignmentId, submissionId, comparedWithId } = req.params;
+    const assignment = await assertAssignmentOwner(req, res, assignmentId);
+    if (!assignment) return;
+
+    const result = await PlagiarismResult.findOne({
+      where: {
+        assignment_id: assignmentId,
+        submission_id: submissionId,
+        compared_with_id: comparedWithId
+      },
+      include: [
+        {
+          model: Submission, as: 'submission',
+          include: [{ model: User, as: 'student', attributes: ['id', 'real_name', 'username'] }]
+        },
+        {
+          model: Submission, as: 'comparedWith',
+          include: [{ model: User, as: 'student', attributes: ['id', 'real_name', 'username'] }]
+        }
+      ]
+    });
+    if (!result) return fail(res, '该对比对的查重结果不存在', 404);
+    if (result.status !== 'done') return fail(res, '该对比对尚未完成检测', 422);
+
+    const d = result.details || {};
+    return success(res, {
+      assignmentId: parseInt(assignmentId),
+      submissionId: parseInt(submissionId),
+      comparedWithId: parseInt(comparedWithId),
+      sourceName: result.submission?.student?.real_name || result.submission?.student?.username || '源图',
+      candidateName: result.comparedWith?.student?.real_name || result.comparedWith?.student?.username || '对比图',
+      similarityScore: parseFloat(result.similarity_score),
+      graphSimilarity: parseFloat(result.graph_similarity),
+      textSimilarity: parseFloat(result.text_similarity),
+      imageHashScore: parseFloat(result.image_hash_score),
+      orbMatchCount: result.orb_match_count,
+      isIsomorphic: result.is_isomorphic === 1,
+      // 图结构数据（旧数据可能缺 src_edges/cand_edges，前端只画节点）
+      srcNodes: d.src_nodes || [],
+      candNodes: d.cand_nodes || [],
+      srcEdges: d.src_edges || [],
+      candEdges: d.cand_edges || [],
+      matchDetails: {
+        commonNodes: d.common_nodes ?? null,
+        commonEdges: d.common_edges ?? null,
+        totalNodes: (d.src_nodes || []).length,
+        totalEdges: (d.src_edges || []).length,
+        nodeTypeSimilarities: d.node_type_similarities || null,
+        isIsomorphic: d.structure?.is_isomorphic ?? result.is_isomorphic === 1
+      },
+      checkedAt: result.checked_at
+    }, '获取成功');
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * 获取某次提交的最高相似度
  * GET /api/plagiarism/max-score/:assignmentId/:submissionId
  */

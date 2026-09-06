@@ -110,6 +110,15 @@
       </el-button>
       <el-button @click="closeDialog">关闭</el-button>
     </template>
+
+    <!-- 双拓扑可视化对比（单对比对） -->
+    <TopologyComparison
+      v-model="topoVisible"
+      :assignment-id="assignmentId"
+      :submission-id="submissionId"
+      :compared-with-id="topoRow?.comparedWithId"
+      :result-data="topoRow"
+    />
   </el-dialog>
 </template>
 
@@ -119,6 +128,7 @@ import { ElMessage } from 'element-plus'
 import { WarningFilled } from '@element-plus/icons-vue'
 import { plagiarismApi } from '@/api'
 import * as echarts from 'echarts'
+import TopologyComparison from '@/components/TopologyComparison.vue'
 
 const props = defineProps({
   modelValue: Boolean,
@@ -134,6 +144,8 @@ const results = ref([])
 const recheckLoading = ref(false)
 const radarChartRef = ref(null)
 let radarChart = null
+const topoVisible = ref(false)
+const topoRow = ref(null)
 
 const maxSimilarity = computed(() => {
   if (results.value.length === 0) return 0
@@ -253,8 +265,8 @@ async function recheck() {
 }
 
 function viewComparison(row) {
-  // 跳转到可视化对比（后续扩展）
-  ElMessage.info(`对比对象: ${row.studentName}，相似度 ${row.similarityScore.toFixed(1)}%`)
+  topoRow.value = row
+  topoVisible.value = true
 }
 
 function closeDialog() {
