@@ -1,4 +1,4 @@
-version: '3.8'
+# 开发环境：仅 MySQL（后端/前端本机 npm 启动）
 
 services:
   mysql:
