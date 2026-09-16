@@ -64,7 +64,7 @@
                   <el-dropdown-menu>
                     <el-dropdown-item command="export">导出未交名单</el-dropdown-item>
                     <el-dropdown-item command="edit">编辑</el-dropdown-item>
-                    <el-dropdown-item v-if="row.submit_count === 0" command="delete" divided>
+                    <el-dropdown-item command="delete" divided>
                       <span style="color:var(--color-danger)">删除</span>
                     </el-dropdown-item>
                   </el-dropdown-menu>
