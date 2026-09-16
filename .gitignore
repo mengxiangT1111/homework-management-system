@@ -61,4 +61,7 @@ server/logs/
 # 论文相关：仅本地保留，不入库（含草稿/生成工具/实验数据）
 docs/paper_build/
 docs/paper_tools/
-docs/论文*.docx
+docs/*论文*.docx
+docs/论文任务书/
+docs/软件导刊投稿包/
+docs/experiment_data/
