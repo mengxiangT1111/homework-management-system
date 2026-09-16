@@ -1,6 +1,7 @@
 const { Op } = require('sequelize');
 const {
-  sequelize, Assignment, Course, User, Class, Submission, SubmissionFile, ClassStudent
+  sequelize, Assignment, Course, User, Class, Submission, SubmissionFile, ClassStudent,
+  PlagiarismResult, PlagiarismTask, GradingTask, GradingResult, GradingReview
 } = require('../models');
 const { success, fail, paginate, normalizePage } = require('../utils/response');
 const { sanitizeSampleFiles, parseAssignmentLimits } = require('../utils/assignmentInput');
@@ -223,7 +224,13 @@ exports.updateAssignment = async (req, res, next) => {
 };
 
 // 删除作业 —— 教师/管理员
+// 默认拒绝删除已有提交的作业（422 + force_deletable 标记，前端据此引导二次强确认）；
+// 携带 ?force=true 时级联删除提交、文件记录、查重与批阅等全部关联数据。
+// 行记录在同一事务内按"子表先删"顺序清理；物理文件在事务提交后删除，失败不回滚删除结果。
 exports.deleteAssignment = async (req, res, next) => {
+  // 惰性 require：submissionController 顶层已反向引用本模块（isOverdue），
+  // 顶层互相 require 会因循环依赖拿到未初始化完成的导出，运行期才取则双方均已加载完毕
+  const { deletePhysicalFiles } = require('./submissionController');
   try {
     const assignment = await Assignment.findByPk(req.params.id, {
       include: [{ model: Course, as: 'course' }]
@@ -232,13 +239,58 @@ exports.deleteAssignment = async (req, res, next) => {
     if (req.user.role === 'teacher' && assignment.teacher_id !== req.user.id) {
       return fail(res, '只能删除自己发布的作业', 403);
     }
-    // 管理员可以删除任何作业
+    const force = ['true', '1'].includes(String(req.query.force || '').toLowerCase());
     const subCount = await Submission.count({ where: { assignment_id: assignment.id } });
-    if (subCount > 0) {
-      return fail(res, `该作业已有 ${subCount} 条提交记录，建议改为"关闭"状态而非删除`, 422);
+    if (subCount > 0 && !force) {
+      return fail(res, `该作业已有 ${subCount} 条提交记录，建议改为"关闭"状态而非删除`, 422, {
+        force_deletable: true,
+        submission_count: subCount
+      });
     }
-    await assignment.destroy();
-    return success(res, null, '作业已删除');
+
+    // 事务前先取提交ID与文件路径：行记录事务内删，物理文件事务提交后删
+    const submissionIds = (await Submission.findAll({
+      where: { assignment_id: assignment.id },
+      attributes: ['id']
+    })).map(s => s.id);
+    const filePaths = submissionIds.length === 0 ? [] : (await SubmissionFile.findAll({
+      where: { submission_id: { [Op.in]: submissionIds } },
+      attributes: ['file_path']
+    })).map(f => f.file_path);
+
+    await sequelize.transaction(async (t) => {
+      if (submissionIds.length > 0) {
+        // grading_reviews.result_id / grading_results.task_id 均有唯一约束指向上游，必须先删复核与结果再删任务
+        await GradingReview.destroy({ where: { submission_id: { [Op.in]: submissionIds } }, transaction: t });
+        await GradingResult.destroy({ where: { submission_id: { [Op.in]: submissionIds } }, transaction: t });
+      }
+      await GradingTask.destroy({ where: { assignment_id: assignment.id }, transaction: t });
+      await PlagiarismResult.destroy({
+        where: {
+          [Op.or]: [
+            { assignment_id: assignment.id },
+            // 兜底：其他作业的比对结果若引用了本作业的提交（compared_with_id），一并清掉避免悬挂引用
+            ...(submissionIds.length > 0 ? [
+              { submission_id: { [Op.in]: submissionIds } },
+              { compared_with_id: { [Op.in]: submissionIds } }
+            ] : [])
+          ]
+        },
+        transaction: t
+      });
+      await PlagiarismTask.destroy({ where: { assignment_id: assignment.id }, transaction: t });
+      if (submissionIds.length > 0) {
+        await SubmissionFile.destroy({ where: { submission_id: { [Op.in]: submissionIds } }, transaction: t });
+        await Submission.destroy({ where: { assignment_id: assignment.id }, transaction: t });
+      }
+      await assignment.destroy({ transaction: t });
+    });
+
+    // 事务提交后清理物理文件（本地 + COS + 上传记录），单文件失败不影响删除结果
+    if (filePaths.length > 0) await deletePhysicalFiles(filePaths);
+
+    return success(res, null,
+      subCount > 0 ? `作业已强制删除（含 ${subCount} 条提交、其文件及查重/批阅记录）` : '作业已删除');
   } catch (err) {
     next(err);
   }

@@ -38,7 +38,7 @@ function isPathSafe(relativePath) {
   return absPath === UPLOAD_DIR || absPath.startsWith(UPLOAD_DIR + path.sep);
 }
 
-/** 删除提交绑定的物理文件（本地 + COS）。用于重交覆盖与删除用户时清理，失败不阻断主流程 */
+/** 删除提交绑定的物理文件（本地 + COS）。用于重交覆盖、删除用户与强制删除作业时清理，失败不阻断主流程 */
 async function deletePhysicalFiles(filePaths) {
   for (const raw of filePaths) {
     try {
@@ -616,3 +616,6 @@ function thinBorder() {
     right: { style: 'thin', color: { argb: 'FFD0D0D0' } }
   };
 }
+
+// 供强制删除作业复用（assignmentController 运行期惰性引入，避免顶层循环依赖）
+module.exports.deletePhysicalFiles = deletePhysicalFiles;

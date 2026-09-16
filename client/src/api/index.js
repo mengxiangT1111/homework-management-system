@@ -82,7 +82,7 @@ export const assignmentApi = {
   unsubmitted: (id) => request.get(`/assignments/${id}/unsubmitted`),
   create: (data) => request.post('/assignments', data),
   update: (id, data) => request.put(`/assignments/${id}`, data),
-  remove: (id) => request.delete(`/assignments/${id}`)
+  remove: (id, force = false) => request.delete(`/assignments/${id}`, { params: force ? { force: 'true' } : {} })
 }
 
 // ===== 提交 =====

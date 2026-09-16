@@ -345,12 +345,33 @@ function exportExcel(row) {
 async function deleteAssignment(row) {
   try {
     await ElMessageBox.confirm(`确定删除作业「${row.title}」？删除后不可恢复。`, '删除确认', { type: 'warning' })
-    await assignmentApi.remove(row.id)
-    ElMessage.success('已删除')
-    // 删除的是当前页最后一条时回退一页，避免停留在空页
-    if (list.value.length === 1 && page.value > 1) page.value -= 1
-    loadData()
+    await doRemoveAssignment(row, false)
   } catch (e) {}
+}
+
+async function doRemoveAssignment(row, force) {
+  try {
+    const r = await assignmentApi.remove(row.id, force)
+    ElMessage.success(r?.message || '已删除')
+  } catch (e) {
+    // 已有提交被 422 拦截（拦截器已 toast 拦截原因）：标记可强删时弹二次强警示，确认后携带 force 重发
+    const data = e?.response?.data
+    if (!force && e?.response?.status === 422 && data?.force_deletable) {
+      try {
+        await ElMessageBox.confirm(
+          `该作业已有 ${data.submission_count} 名学生提交！强制删除将同时清除全部提交文件、查重记录与批阅成绩，操作不可恢复。`,
+          '强制删除确认',
+          { type: 'error', confirmButtonText: '强制删除', cancelButtonText: '取消', confirmButtonClass: 'el-button--danger' }
+        )
+        await doRemoveAssignment(row, true)
+      } catch (e2) {}
+      return
+    }
+    throw e
+  }
+  // 删除的是当前页最后一条时回退一页，避免停留在空页
+  if (list.value.length === 1 && page.value > 1) page.value -= 1
+  loadData()
 }
 
 onMounted(loadData)
