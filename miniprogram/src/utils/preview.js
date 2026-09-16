@@ -20,8 +20,8 @@ export function getExt(name) {
 
 /**
  * 通过 /api/files/urls 解析文件访问 URL：
- * - COS 文件 → 签名 URL（1 小时时效），必须即用即取，禁止缓存
- * - 本地文件 → 相对路径 /api/files/download?...，必须拼 BASE_URL
+ * 统一返回带票据的后端代理下载地址 /api/files/download?path=…&st=…（COS/本地一致），
+ * 相对路径需拼 BASE_URL；票据 10 分钟时效，即用即取不缓存，失效自动重取
  */
 async function resolveUrl(filePath) {
   const map = await post('/api/files/urls', { paths: [filePath] })

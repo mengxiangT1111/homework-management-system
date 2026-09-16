@@ -22,28 +22,33 @@ npm run dev:mp-weixin
 
 ### 1. 配置 AppID
 
-编辑 `src/manifest.json` → `mp-weixin.appid`（当前为占位值 `touristappid`），替换为你的小程序 AppID。
+```bash
+npm run set-appid -- wx1234567890abcdef   # 你的真实 AppID
+```
+
+脚本写入 `src/manifest.json` 并同步已有构建产物（占位值 `touristappid` 无法上传发布）。
+AppID 位置：mp.weixin.qq.com → 开发管理 → 开发设置。
 
 ### 2. 配置后端地址
 
-编辑 `src/utils/config.js` → `BASE_URL`：
+`src/utils/config.js` 按运行环境自动切换，无需手动改：
 
-- 开发者工具内：`http://127.0.0.1:3000`（默认，需后端在本机 3000 端口运行）
-- **真机预览**：改为电脑局域网 IP，如 `http://192.168.1.100:3000`，手机与电脑须在同一 Wi-Fi
-- 生产：改为已备案 HTTPS 域名，如 `https://api.example.com`
+- 开发者工具（develop）→ `DEV_BASE_URL`（默认 `http://127.0.0.1:3000`）
+- 体验版 / 正式版（trial / release）→ `PROD_BASE_URL`（已指向生产 `https://mengxiangt.top`）
 
 后端启动方式见仓库根 README（`cd server && npm run dev`）。
 
+## 正式上线
+
+完整的上线操作手册（AppID、服务器域名、隐私指引、类目、审核账号、提审发布）见
+**[docs/小程序上线清单.md](../docs/小程序上线清单.md)**，按清单逐项打勾即可。
+
 ## 微信后台配置（上线前必做）
 
-登录 [mp.weixin.qq.com](https://mp.weixin.qq.com) → 开发管理 → 开发设置 → 服务器域名：
+登录 [mp.weixin.qq.com](https://mp.weixin.qq.com) → 开发管理 → 开发设置 → 服务器域名，
+**request / uploadFile / downloadFile 三组都配** `https://mengxiangt.top` 即可。
 
-| 域名类型 | 需要配置的域名 |
-|---|---|
-| request 合法域名 | `https://你的API域名` |
-| uploadFile 合法域名 | `https://你的API域名` |
-| downloadFile 合法域名 | `https://你的API域名` + `https://<COS桶>.cos.<地域>.myqcloud.com`（文件预览用，见 server/.env 的 COS_BUCKET / COS_REGION） |
-
+> 文件预览/下载统一经后端 `/api/files/download` 代理，小程序不直连 COS 域名，无需配置桶域名。
 > 开发阶段可在开发者工具「详情 → 本地设置」勾选**不校验合法域名**跳过校验。
 > 所有域名必须 HTTPS 且已 ICP 备案。
 
@@ -59,34 +64,39 @@ mp.weixin.qq.com → 设置 → 服务内容声明 → 用户隐私保护指引�
 
 ## 真机调试注意
 
-1. 手机与电脑同一 Wi-Fi，`BASE_URL` 用电脑局域网 IP
+1. 开发者工具预览走 `DEV_BASE_URL`（本机 3000）；如需真机连本机后端，把它临时改为电脑局域网 IP（如 `http://192.168.1.100:3000`），手机与电脑须同一 Wi-Fi
 2. 后端必须可被局域网访问（Windows 防火墙放行 3000 端口或 Node 程序）
 3. 首次真机预览若选文件/拍照失败，优先检查上面两项 + 隐私指引配置
 
 ## 目录结构
 
 ```
-miniprogram/src/
-├── main.js               # Pinia 注册
-├── App.vue               # 启动 token 校验 + 全局样式
-├── pages.json            # 15 页路由 + 4 个文字 tabBar
-├── manifest.json         # AppID 等小程序配置
-├── utils/
-│   ├── config.js         # BASE_URL（环境切换）
-│   ├── request.js        # 请求封装（token/统一错误/401 去重）+ 单文件上传
-│   ├── format.js         # iOS 安全时间解析/格式化/剩余时间
-│   ├── statusMaps.js     # 状态文案与颜色（与 Web 端对齐）
-│   ├── preview.js        # 文件预览（签名 URL + openDocument/previewImage）
-│   └── badge.js          # 消息角标
-├── stores/auth.js        # 登录态（Pinia + storage）
-├── components/empty-state.vue
-└── pages/                # 15 个页面（见 pages.json）
+miniprogram/
+├── scripts/
+│   ├── set-appid.js        # 一键注入真实 AppID（npm run set-appid -- wx…）
+│   ├── gen-tab-icons.js    # 程序化绘制 tabBar 图标
+│   └── visual-audit.js     # 视觉审计
+└── src/
+    ├── main.js               # Pinia 注册
+    ├── App.vue               # 启动 token 校验 + 全局样式
+    ├── pages.json            # 15 页路由 + 4 个文字 tabBar
+    ├── manifest.json         # AppID / lazyCodeLoading 等小程序配置
+    ├── utils/
+    │   ├── config.js         # BASE_URL（按微信环境自动切换）
+    │   ├── request.js        # 请求封装（token/统一错误/401 去重）+ 单文件上传
+    │   ├── format.js         # iOS 安全时间解析/格式化/剩余时间
+    │   ├── statusMaps.js     # 状态文案与颜色（与 Web 端对齐）
+    │   ├── preview.js        # 文件预览（URL 解析 + openDocument/previewImage）
+    │   └── badge.js          # 消息角标
+    ├── stores/auth.js        # 登录态（Pinia + storage）
+    ├── components/empty-state.vue
+    └── pages/                # 15 个页面（见 pages.json）
 ```
 
 ## 关键实现约定
 
 - 文件上传走后端 `POST /api/upload/single`（一次传完整文件，≤100MB），与 Web 端分片上传链路互不影响
-- 文件预览统一走 `POST /api/files/urls`：COS 返回签名 URL（1 小时时效，即用即取不缓存）；本地文件返回相对路径，代码内自动拼接 BASE_URL
+- 文件预览统一走 `POST /api/files/urls`：返回带票据的后端代理下载地址 `/api/files/download`（COS 与本地存储一致），代码内自动拼接 BASE_URL
 - 分页统一 `page/pageSize` 参数，下拉刷新 + 触底加载
 - 401 统一清登录态跳登录页（并发请求去重）
 

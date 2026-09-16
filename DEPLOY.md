@@ -305,6 +305,31 @@ crontab -e
 
 ---
 
+## 📱 微信小程序端上线（信衡）
+
+小程序端与网页端共用这套后端（API / 数据库 / COS），后端按本文部署并启用 HTTPS 后，小程序侧只需：
+
+1. **审核演示数据**（微信提审需要可登录的体验账号）：
+
+   ```bash
+   docker exec hw_backend node src/seeders/seedReview.js
+   # 创建「信衡演示学校」+ review_teacher / review_student（默认密码 Xinheng@2026）
+   ```
+
+2. **构建小程序生产包**（本地开发机执行）：
+
+   ```bash
+   cd miniprogram
+   npm run set-appid -- wx你的真实appid   # 首次：注入 AppID
+   npm run build:mp-weixin                # 产物 dist/build/mp-weixin
+   ```
+
+3. 微信开发者工具导入产物 → 上传 → mp 后台配置服务器域名（`https://你的域名` 三组）→ 提审发布。
+
+完整逐步操作手册（隐私指引、类目、提审填写、驳回处理）见 **[docs/小程序上线清单.md](docs/小程序上线清单.md)**。
+
+---
+
 ## 🎯 最快部署总结（4 条命令）
 
 假设你已上传代码到 `/opt/homework` 并配好 `.env`：
