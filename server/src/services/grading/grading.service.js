@@ -248,7 +248,10 @@ async function processTask(task) {
       knowledge_errors: parsed.knowledge_errors,
       confidence,
       needs_review: needsReview ? 1 : 0,
-      review_reasons: needsReview ? reasons : [],
+      // 信号原因串总是保存：置信度未过阈值的记录其信号（钳制/重试等）只存在于
+      // 该字段，导出实验数据（论文 ai.csv 五信号列）依赖它，且前端仅在
+      // needs_review 时展示，多存不影响界面
+      review_reasons: reasons,
       raw_response: llmResp.content,
       llm_model: llmResp.model,
       tokens_used: llmResp.usage

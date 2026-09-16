@@ -30,6 +30,17 @@ function check(name, cond, extra = '') {
 
 const api = axios.create({ baseURL: BASE, timeout: 30000 });
 
+// 夹具自包含：uploads 里缺测试图时从 scripts/fixtures 补齐（新 clone 开箱可跑）
+for (const f of ['plagtest_a.png', 'plagtest_acopy.jpg', 'plagtest_b.png']) {
+  const dst = path.join(UPLOADS, f);
+  if (!fs.existsSync(dst)) {
+    const src = path.join(__dirname, 'fixtures', f);
+    if (!fs.existsSync(src)) throw new Error(`缺少夹具 ${src}（用 PIL 按脚本注释重新生成）`);
+    fs.mkdirSync(UPLOADS, { recursive: true });
+    fs.copyFileSync(src, dst);
+  }
+}
+
 async function login(username, password, schoolId) {
   const res = await api.post('/api/auth/login', { username, password, school_id: schoolId });
   return res.data.data.token;

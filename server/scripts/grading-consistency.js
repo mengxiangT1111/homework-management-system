@@ -46,6 +46,8 @@ async function main() {
   const runs = Number((args.find(a => a.startsWith('--runs=')) || '--runs=5').split('=')[1]);
   const channel = (args.find(a => a.startsWith('--channel=')) || '--channel=stable').split('=')[1];
   const templateId = Number((args.find(a => a.startsWith('--template=')) || '--template=1').split('=')[1]);
+  const outArg = args.find(a => a.startsWith('--out='));
+  const outFile = outArg ? outArg.replace('--out=', '') : null;
 
   const items = fs.readFileSync(file, 'utf-8').trim().split('\n').filter(Boolean).map(JSON.parse);
   if (items.length < 5) {
@@ -77,6 +79,9 @@ async function main() {
   console.log(`提示词版本：${version.version}\n`);
 
   const report = [];
+  let skipped = 0;
+  let latencyTotal = 0, latencyCount = 0;
+  let callFail = 0, callTotal = 0;   // JSON/网络失败事件数与总调用数（消融实验要求的解析失败率）
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
     const scores = [];
@@ -89,14 +94,35 @@ async function main() {
         studentAnswer: item.student_answer,
         mode: 'balanced'
       });
-      const resp = await llmClient.chatCompletion({
-        messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-        temperature: 0.1,
-        maxTokens: 4096,
-        jsonMode: true
-      });
-      const parsed = parseGradingOutput(safeParseJSON(resp.content), templateJSON);
-      scores.push(computeTotalScore(parsed.dimensions, templateJSON));
+      // 单次批改失败（网络/格式异常）自动重试 2 次，仍失败跳过该次而不中断整个实验
+      callTotal++;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          const t0 = Date.now();
+          const resp = await llmClient.chatCompletion({
+            messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+            temperature: 0.1,
+            maxTokens: 4096,
+            jsonMode: true
+          });
+          latencyTotal += Date.now() - t0; latencyCount++;
+          const parsed = parseGradingOutput(safeParseJSON(resp.content), templateJSON);
+          scores.push(computeTotalScore(parsed.dimensions, templateJSON));
+          break;
+        } catch (e) {
+          callFail++;
+          if (attempt === 3) {
+            console.warn(`[${i + 1}/${items.length}] 第 ${r + 1} 次批改连续 3 次失败，跳过该次: ${e.message}`);
+          } else {
+            await new Promise(res => setTimeout(res, 2000 * attempt));
+          }
+        }
+      }
+    }
+    if (scores.length === 0) {
+      skipped++;
+      console.warn(`[${i + 1}/${items.length}] 该样本全部尝试失败，已跳过`);
+      continue;
     }
     const min = Math.min(...scores);
     const max = Math.max(...scores);
@@ -119,11 +145,26 @@ async function main() {
   const maxRange = Math.max(...report.map(x => x.range));
 
   console.log('\n========== 一致性报告 ==========');
+  console.log(`有效样本: ${report.length}${skipped ? `（跳过 ${skipped} 份全失败样本）` : ''}`);
   console.log(`MAE（平均绝对误差）  : ${mae} 分   达标线 ≤ 5`);
   console.log(`±5 分一致率          : ${within5}%    达标线 ≥ 80%`);
   console.log(`Pearson 相关系数     : ${r}     达标线 ≥ 0.85`);
   console.log(`重复批改最大极差     : ${maxRange} 分   达标线 ≤ 10`);
+  if (latencyCount) console.log(`单次调用平均耗时     : ${Math.round(latencyTotal / latencyCount / 100) / 10}s（${latencyCount} 次）`);
+  if (callTotal) console.log(`调用失败率（含重试） : ${Math.round(callFail / callTotal * 1000) / 10}%（${callFail}/${callTotal}）`);
   console.log('================================');
+
+  // 机器可读工件：逐样本分数与汇总，供消融实验留档与二次分析
+  if (outFile) {
+    fs.writeFileSync(outFile, JSON.stringify({
+      meta: { goldenSet: file, templateId, channel, runs, promptVersion: version.version, model: process.env.AI_MODEL, generatedAt: new Date().toISOString() },
+      summary: { n: report.length, skipped, mae, within5, pearson: r, maxRange,
+        avgLatencySec: latencyCount ? Math.round(latencyTotal / latencyCount / 100) / 10 : null,
+        callFailRate: callTotal ? Math.round(callFail / callTotal * 1000) / 10 : null },
+      items: report
+    }, null, 2), 'utf-8');
+    console.log(`✓ 结果已写出: ${outFile}`);
+  }
   process.exit(0);
 }
 

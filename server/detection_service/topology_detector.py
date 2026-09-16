@@ -129,7 +129,18 @@ class TopologyDetector:
         self.ocr = None
         if self.enable_ocr:
             try:
-                self.ocr = PaddleOCR(use_angle_cls=True, lang='ch', show_log=False)
+                try:
+                    # PaddleOCR 3.x：use_angle_cls 更名 use_textline_orientation，show_log 已移除。
+                    # 默认 PP-OCRv6 模型与 paddle 3.0.0 推理引擎存在兼容 bug（strides 属性校验失败），
+                    # 显式固定 PP-OCRv4 mobile 模型规避。
+                    self.ocr = PaddleOCR(
+                        use_textline_orientation=True, lang='ch',
+                        text_detection_model_name='PP-OCRv4_mobile_det',
+                        text_recognition_model_name='PP-OCRv4_mobile_rec',
+                    )
+                except (TypeError, ValueError):
+                    # PaddleOCR 2.x 旧参数兜底
+                    self.ocr = PaddleOCR(use_angle_cls=True, lang='ch', show_log=False)
                 print("PaddleOCR初始化成功")
             except Exception as e:
                 print(f"PaddleOCR初始化失败: {e}")
@@ -286,7 +297,7 @@ class TopologyDetector:
                 fp['phash'] = None
             if self.ocr:
                 try:
-                    fp['ocr_results'] = self._parse_ocr_results(self.ocr.ocr(abs_path, cls=True))
+                    fp['ocr_results'] = self._parse_ocr_results(self._run_ocr_engine(abs_path))
                 except Exception as e:
                     print(f"OCR失败 {abs_path}: {e}")
             try:
@@ -573,20 +584,65 @@ class TopologyDetector:
                 continue
         raise ValueError(f"非法路径: {relative_path} 不在允许的目录内")
     
+    def _run_ocr_engine(self, abs_path: str):
+        """按引擎版本选择推理接口：3.x 用 predict()，2.x 用 ocr()"""
+        if hasattr(self.ocr, 'predict'):
+            return self.ocr.predict(abs_path)
+        return self.ocr.ocr(abs_path, cls=True)
+
     def _parse_ocr_results(self, ocr_raw: List) -> List[Dict]:
         """
         解析PaddleOCR结果
-        
+
         Args:
-            ocr_raw: PaddleOCR原始输出
-            
+            ocr_raw: PaddleOCR原始输出（兼容 2.x 嵌套列表与 3.x dict 结果两种格式）
+
         Returns:
             解析后的结果列表
         """
         results = []
         if not ocr_raw:
             return results
-        
+
+        # PaddleOCR 3.x predict() 返回 [OCRResult dict]，含 rec_texts / rec_scores / rec_polys / rec_boxes
+        first = ocr_raw[0]
+        if isinstance(first, dict) and 'rec_texts' in first:
+            texts = first.get('rec_texts') or []
+            scores = first.get('rec_scores') or []
+            polys = first.get('rec_polys')
+            boxes = first.get('rec_boxes')
+            for i, text in enumerate(texts):
+                confidence = float(scores[i]) if i < len(scores) else 0.0
+                if confidence <= 0.5:
+                    continue
+                poly = None
+                if polys is not None and i < len(polys):
+                    poly = polys[i]
+                elif boxes is not None and i < len(boxes):
+                    poly = boxes[i]
+                if poly is None:
+                    results.append({'text': str(text), 'bbox': [0, 0, 0, 0], 'confidence': confidence})
+                    continue
+                if hasattr(poly, 'tolist'):
+                    poly = poly.tolist()
+                if poly and hasattr(poly[0], '__len__'):
+                    # 四点多边形 [[x,y]×4]（3.x rec_polys）
+                    pts = [(float(p[0]), float(p[1])) for p in poly]
+                    xs = [p[0] for p in pts]
+                    ys = [p[1] for p in pts]
+                    x, y = min(xs), min(ys)
+                    w, h = max(xs) - x, max(ys) - y
+                else:
+                    # [x1, y1, x2, y2] 形式（3.x rec_boxes）
+                    x, y = float(poly[0]), float(poly[1])
+                    w, h = float(poly[2]) - x, float(poly[3]) - y
+                results.append({
+                    'text': str(text),
+                    'bbox': [int(x), int(y), int(w), int(h)],
+                    'confidence': confidence
+                })
+            return results
+
         for line in ocr_raw:
             if line is None:
                 continue
