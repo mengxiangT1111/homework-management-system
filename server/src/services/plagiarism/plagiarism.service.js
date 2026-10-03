@@ -2,6 +2,7 @@
  * 全班查重任务执行服务
  * - COS 兼容：检测前用 ensureLocalFile 把 cos:// 文件物化到本地（每任务每文件仅下载一次）
  * - 对称去重：只算 C(n,2) 组合（源 i 与候选 i+1..n），一次计算双向 upsert
+ * - 多文件：提交的全部未清理文件参与比对，提交对取跨文件组合的最高相似度
  * - 进度回写：每完成一个源的批量比对更新 completed_pairs，前端轮询展示
  */
 const {
@@ -14,8 +15,9 @@ const { isCOSPath, ensureLocalFile } = require('../../utils/fileStorage').helper
 const DETECT_CALL_TIMEOUT = Number(process.env.PLAGIARISM_DETECT_TIMEOUT || '600000');
 
 /**
- * 加载某作业下可参与查重的提交（有文件且未被过期清理）
- * @returns {Promise<Array<{submissionId, studentName, filePath}>>}
+ * 加载某作业下可参与查重的提交（未被过期清理的文件全部参与——
+ * 多文件提交原先只取第一个文件比对会漏检，现按提交级聚合全部文件）
+ * @returns {Promise<Array<{submissionId, studentName, files: Array<{path, name}>}>>}
  */
 async function loadValidSubmissionEntries(assignmentId) {
   const submissions = await Submission.findAll({
@@ -27,18 +29,16 @@ async function loadValidSubmissionEntries(assignmentId) {
     order: [['id', 'ASC']]
   });
   return submissions
-    .filter(s => {
-      const files = s.Files || s.files || [];
-      return files.length > 0 && !files[0].is_cleaned;
-    })
     .map(s => {
-      const files = s.Files || s.files || [];
+      const files = (s.Files || s.files || []).filter(f => !f.is_cleaned);
+      if (files.length === 0) return null;
       return {
         submissionId: s.id,
         studentName: s.student?.real_name || s.student?.username || '未知',
-        filePath: files[0].file_path
+        files: files.map(f => ({ path: f.file_path, name: f.original_name }))
       };
-    });
+    })
+    .filter(Boolean);
 }
 
 /**
@@ -122,18 +122,22 @@ async function processTask(task) {
       throw new Error('查重检测服务未启动（Python :8000）');
     }
 
-    // 2. 加载提交并物化文件到本地（COS → 本地临时文件；每个文件只下载一次，
+    // 2. 加载提交并物化文件到本地（COS → uploads/_detection_tmp；每个文件只下载一次，
     //    后续所有比对复用同一路径，Python 侧指纹缓存才能命中）
     const entries = await loadValidSubmissionEntries(task.assignment_id);
     const localEntries = [];
     for (const entry of entries) {
-      try {
-        const localPath = await ensureLocalFile(entry.filePath);
-        if (isCOSPath(entry.filePath)) tmpFilesToClean.push(localPath);
-        localEntries.push({ ...entry, localPath });
-      } catch (e) {
-        console.warn(`[查重队列] 作业${task.assignment_id} 提交${entry.submissionId} 文件物化失败，跳过: ${e.message}`);
+      const files = [];
+      for (const f of entry.files) {
+        try {
+          const localPath = await ensureLocalFile(f.path);
+          if (isCOSPath(f.path)) tmpFilesToClean.push(localPath);
+          files.push({ ...f, localPath });
+        } catch (e) {
+          console.warn(`[查重队列] 作业${task.assignment_id} 提交${entry.submissionId} 文件 ${f.name} 物化失败，跳过: ${e.message}`);
+        }
       }
+      if (files.length > 0) localEntries.push({ ...entry, files });
     }
 
   const n = localEntries.length;
@@ -153,8 +157,19 @@ async function processTask(task) {
     return { total: n };
   }
 
-  // 3. 上三角逐源检测：源 i 只与 i+1..n-1 比对 → 每对恰好计算一次
-  const pathToEntry = new Map(localEntries.map(e => [e.localPath, e]));
+  // 3. 上三角逐源检测：源 i 只与 i+1..n-1 比对 → 每对提交恰好计算一次。
+  //    多文件聚合：源提交的每个文件与目标提交的全部文件各比对一次，
+  //    提交对取所有文件组合中的最高相似度（details.file_pairs 留全量分解）。
+  //    注意路径反查必须多值：两名学生提交相同文件（秒传共享同一路径）时，
+  //    同一个检测结果要同时归属两个提交
+  const pathToFiles = new Map(); // localPath -> [{ entry, file }]
+  for (const e of localEntries) {
+    for (const f of e.files) {
+      const list = pathToFiles.get(f.localPath) || [];
+      list.push({ entry: e, file: f });
+      pathToFiles.set(f.localPath, list);
+    }
+  }
   let completed = 0;
   let failed = 0;
 
@@ -167,27 +182,70 @@ async function processTask(task) {
     }
 
     const source = localEntries[i];
-    const candidates = localEntries.slice(i + 1);
-    try {
-      const det = await detectionService.detect({
-        sourcePath: source.localPath,
-        candidatePaths: candidates.map(c => c.localPath),
-        timeout: DETECT_CALL_TIMEOUT
-      });
-      for (const detResult of det.results || []) {
-        const target = pathToEntry.get(detResult.candidate);
-        if (!target) continue;
-        await upsertPairRows(task.assignment_id, source, target, detResult);
-        completed++;
-        // 与 upsertPairRows 写入的 status='error' 行对齐，否则进度页失败数失真
-        if (detResult.error) failed++;
+    const targets = localEntries.slice(i + 1);
+    // targetSubmissionId → { best: 最高相似度的成功结果, filePairs: 全部文件组合分解 }
+    const bestByTarget = new Map();
+    const errorsByTarget = new Map();
+
+    const addError = (targetId, msg) => {
+      const list = errorsByTarget.get(targetId) || [];
+      list.push(String(msg).slice(0, 200));
+      errorsByTarget.set(targetId, list);
+    };
+
+    for (const sf of source.files) {
+      // 候选去重：相同物理文件只送检一次（结果按多值反查同时归属各提交）
+      const candidatePaths = [...new Set(targets.flatMap(t => t.files.map(f => f.localPath)))];
+      if (candidatePaths.length === 0) continue;
+      try {
+        const det = await detectionService.detect({
+          sourcePath: sf.localPath,
+          candidatePaths,
+          timeout: DETECT_CALL_TIMEOUT
+        });
+        for (const detResult of det.results || []) {
+          const hits = pathToFiles.get(detResult.candidate) || [];
+          for (const hit of hits) {
+            if (hit.entry.submissionId === source.submissionId) continue; // 只归属目标
+            const targetId = hit.entry.submissionId;
+            const score = Number(detResult.similarity_score) || 0;
+            let agg = bestByTarget.get(targetId);
+            if (!agg) { agg = { best: null, filePairs: [] }; bestByTarget.set(targetId, agg); }
+            agg.filePairs.push({
+              source_file: sf.name,
+              candidate_file: hit.file.name,
+              similarity_score: score,
+              ...(detResult.error ? { error: detResult.error } : {})
+            });
+            if (detResult.error) {
+              addError(targetId, `文件对 ${sf.name} × ${hit.file.name}: ${detResult.error}`);
+            } else if (!agg.best || score > (Number(agg.best.similarity_score) || 0)) {
+              agg.best = detResult;
+            }
+          }
+        }
+      } catch (e) {
+        // 单个源文件整批失败不拖垮任务：记入涉及目标的错误信息，继续下一个源文件
+        console.error(`[查重队列] 任务 ${task.id} 源提交${source.submissionId} 文件 ${sf.name} 检测失败: ${e.message}`);
+        for (const t of targets) addError(t.submissionId, `源文件 ${sf.name} 检测失败: ${e.message}`);
       }
-    } catch (e) {
-      // 单个源整批失败不拖垮任务：记 error 行，继续下一源
-      console.error(`[查重队列] 任务 ${task.id} 源提交${source.submissionId} 检测失败: ${e.message}`);
-      for (const target of candidates) {
-        await upsertErrorPairRows(task.assignment_id, source, target, e.message).catch(() => {});
-        completed++;
+    }
+
+    // 每个目标提交 upsert 一次：有成功文件对则取最高相似度结果，否则写 error 行
+    for (const target of targets) {
+      completed++;
+      const agg = bestByTarget.get(target.submissionId);
+      if (agg && agg.best) {
+        const detResult = {
+          ...agg.best,
+          details: { ...(agg.best.details || {}), file_pairs: agg.filePairs }
+        };
+        await upsertPairRows(task.assignment_id, source, target, detResult);
+      } else {
+        const errs = errorsByTarget.get(target.submissionId) || [];
+        await upsertErrorPairRows(
+          task.assignment_id, source, target, errs.join('；') || '未产生检测结果'
+        ).catch(() => {});
         failed++;
       }
     }

@@ -11,7 +11,7 @@ const {
 } = require('../models');
 const { success, fail } = require('../utils/response');
 const detectionService = require('../services/detectionService');
-const { ensureLocalFile } = require('../utils/fileStorage').helpers;
+const { ensureLocalFile, isCOSPath } = require('../utils/fileStorage').helpers;
 const plagiarismService = require('../services/plagiarism/plagiarism.service');
 
 /** 校验作业归属：仅作业发布教师或 admin 可操作 */
@@ -86,91 +86,143 @@ exports.checkPlagiarism = async (req, res, next) => {
       return fail(res, '查重检测服务未启动，请联系管理员', 503);
     }
 
-    const targetFiles = targetSubmission.Files || targetSubmission.files || [];
-    if (targetFiles.length === 0) return fail(res, '目标提交无文件', 400);
-    if (targetFiles[0].is_cleaned) return fail(res, '目标提交文件已被过期清理，无法查重', 422);
+    // 多文件：目标提交与其余提交的全部未清理文件参与比对，每个被对比提交
+    // 取跨文件组合的最高相似度（与全班查重口径一致；旧实现只取 files[0] 会漏检）
+    const targetFiles = (targetSubmission.Files || targetSubmission.files || []).filter(f => !f.is_cleaned);
+    if (targetFiles.length === 0) {
+      return fail(res, '目标提交文件已被过期清理，无法查重', 422);
+    }
 
-    // COS 兼容：调检测服务前把文件物化到本地（cos:// → 本地临时文件）
-    let sourceLocalPath;
+    const tmpFilesToClean = [];
+    const materialize = async (files) => {
+      const out = [];
+      for (const f of files) {
+        const localPath = await ensureLocalFile(f.file_path);
+        if (isCOSPath(f.file_path)) tmpFilesToClean.push(localPath);
+        out.push({ name: f.original_name, localPath });
+      }
+      return out;
+    };
+
+    let sourceLocalFiles;
     try {
-      sourceLocalPath = await ensureLocalFile(targetFiles[0].file_path);
+      sourceLocalFiles = await materialize(targetFiles);
     } catch (e) {
       return fail(res, `源文件获取失败：${e.message}`, 422);
     }
 
     const candidateEntries = [];
-    for (const sub of otherSubmissions) {
-      const files = sub.Files || sub.files || [];
-      if (files.length > 0 && !files[0].is_cleaned) {
+    try {
+      for (const sub of otherSubmissions) {
+        const files = (sub.Files || sub.files || []).filter(f => !f.is_cleaned);
+        if (files.length === 0) continue;
         try {
           candidateEntries.push({
             submissionId: sub.id,
             studentName: sub.student?.real_name || sub.student?.username || '未知',
-            localPath: await ensureLocalFile(files[0].file_path)
+            files: await materialize(files)
           });
         } catch (e) {
           console.warn(`单份查重：提交 ${sub.id} 文件物化失败，跳过: ${e.message}`);
         }
       }
+    } catch (e) {
+      return fail(res, `候选文件获取失败：${e.message}`, 422);
     }
 
     if (candidateEntries.length === 0) {
       return success(res, { results: [] }, '其他提交均无可检测文件');
     }
 
-    const detectionResult = await detectionService.detect({
-      sourcePath: sourceLocalPath,
-      candidatePaths: candidateEntries.map(e => e.localPath),
-      assignmentId: parseInt(assignmentId),
-      submissionId: parseInt(submissionId),
-      timeout: plagiarismService.DETECT_CALL_TIMEOUT
-    });
+    try {
+      // 路径 → [(提交, 文件)] 多值反查：两名学生提交相同文件（秒传共享路径）时，
+      // 同一个检测结果要同时归属两个提交；聚合每个被对比提交在所有文件组合中的最高相似度
+      const pathToFiles = new Map();
+      for (const e of candidateEntries) {
+        for (const f of e.files) {
+          const list = pathToFiles.get(f.localPath) || [];
+          list.push({ entry: e, file: f });
+          pathToFiles.set(f.localPath, list);
+        }
+      }
+      const bestBySubmission = new Map();
+      let topSimilarity = 0;
+      for (const sf of sourceLocalFiles) {
+        const detectionResult = await detectionService.detect({
+          sourcePath: sf.localPath,
+          candidatePaths: [...pathToFiles.keys()],
+          assignmentId: parseInt(assignmentId),
+          submissionId: parseInt(submissionId),
+          timeout: plagiarismService.DETECT_CALL_TIMEOUT
+        });
+        for (const detResult of detectionResult.results || []) {
+          if (detResult.error) continue;
+          const score = Number(detResult.similarity_score) || 0;
+          for (const hit of pathToFiles.get(detResult.candidate) || []) {
+            let agg = bestBySubmission.get(hit.entry.submissionId);
+            if (!agg) { agg = { best: null, filePairs: [] }; bestBySubmission.set(hit.entry.submissionId, agg); }
+            agg.filePairs.push({ source_file: sf.name, candidate_file: hit.file.name, similarity_score: score });
+            if (!agg.best || score > (Number(agg.best.similarity_score) || 0)) agg.best = detResult;
+            if (score > topSimilarity) topSimilarity = score;
+          }
+        }
+      }
 
-    const savedResults = [];
-    for (const detResult of detectionResult.results || []) {
-      const matchedEntry = candidateEntries.find(e => e.localPath === detResult.candidate);
-      if (!matchedEntry) continue;
+      const savedResults = [];
+      for (const [candidateId, agg] of bestBySubmission) {
+        if (!agg.best) continue;
+        const matchedEntry = candidateEntries.find(e => e.submissionId === candidateId);
+        const detResult = {
+          ...agg.best,
+          details: { ...(agg.best.details || {}), file_pairs: agg.filePairs }
+        };
 
-      const [plagResult] = await PlagiarismResult.upsert({
-        assignment_id: parseInt(assignmentId),
-        submission_id: parseInt(submissionId),
-        compared_with_id: matchedEntry.submissionId,
-        similarity_score: detResult.similarity_score || 0,
-        image_hash_score: detResult.image_hash_score || 0,
-        graph_similarity: detResult.graph_similarity || 0,
-        text_similarity: detResult.text_similarity || 0,
-        orb_match_count: detResult.orb_match_count || 0,
-        is_isomorphic: detResult.is_isomorphic ? 1 : 0,
-        is_suspicious: detResult.is_suspicious ? 1 : 0,
-        details: detResult.details || null,
-        status: detResult.error ? 'error' : 'done',
-        error_message: detResult.error || null,
-        checked_at: new Date()
-      });
+        const [plagResult] = await PlagiarismResult.upsert({
+          assignment_id: parseInt(assignmentId),
+          submission_id: parseInt(submissionId),
+          compared_with_id: matchedEntry.submissionId,
+          similarity_score: detResult.similarity_score || 0,
+          image_hash_score: detResult.image_hash_score || 0,
+          graph_similarity: detResult.graph_similarity || 0,
+          text_similarity: detResult.text_similarity || 0,
+          orb_match_count: detResult.orb_match_count || 0,
+          is_isomorphic: detResult.is_isomorphic ? 1 : 0,
+          is_suspicious: detResult.is_suspicious ? 1 : 0,
+          details: detResult.details,
+          status: 'done',
+          error_message: null,
+          checked_at: new Date()
+        });
 
-      savedResults.push({
-        id: plagResult.id,
-        comparedWithId: matchedEntry.submissionId,
-        studentName: matchedEntry.studentName,
-        similarityScore: detResult.similarity_score || 0,
-        imageHashScore: detResult.image_hash_score || 0,
-        graphSimilarity: detResult.graph_similarity || 0,
-        textSimilarity: detResult.text_similarity || 0,
-        orbMatchCount: detResult.orb_match_count || 0,
-        isIsomorphic: detResult.is_isomorphic || false,
-        isSuspicious: detResult.is_suspicious || false,
-        details: detResult.details || null
-      });
+        savedResults.push({
+          id: plagResult.id,
+          comparedWithId: matchedEntry.submissionId,
+          studentName: matchedEntry.studentName,
+          similarityScore: detResult.similarity_score || 0,
+          imageHashScore: detResult.image_hash_score || 0,
+          graphSimilarity: detResult.graph_similarity || 0,
+          textSimilarity: detResult.text_similarity || 0,
+          orbMatchCount: detResult.orb_match_count || 0,
+          isIsomorphic: detResult.is_isomorphic || false,
+          isSuspicious: detResult.is_suspicious || false,
+          details: detResult.details
+        });
+      }
+
+      return success(res, {
+        assignmentId: parseInt(assignmentId),
+        submissionId: parseInt(submissionId),
+        studentName: targetSubmission.student?.real_name || targetSubmission.student?.username || '未知',
+        topSimilarity,
+        totalCompared: savedResults.length,
+        results: savedResults
+      }, '查重检测完成');
+    } finally {
+      // 清理 COS 物化的临时文件（旧实现漏删，单份查重会在 _detection_tmp 累积残留）
+      for (const p of tmpFilesToClean) {
+        require('fs').promises.unlink(p).catch(() => {});
+      }
     }
-
-    return success(res, {
-      assignmentId: parseInt(assignmentId),
-      submissionId: parseInt(submissionId),
-      studentName: targetSubmission.student?.real_name || targetSubmission.student?.username || '未知',
-      topSimilarity: detectionResult.top_similarity || 0,
-      totalCompared: savedResults.length,
-      results: savedResults
-    }, '查重检测完成');
 
   } catch (error) {
     try {

@@ -65,7 +65,7 @@ async function main() {
   ctx.school = school;
 
   ctx.students = [];
-  for (let i = 1; i <= 3; i++) {
+  for (let i = 1; i <= 4; i++) {
     ctx.students.push(await User.create({
       username: `plagt${TS}s${i}`,
       password: bcrypt.hashSync('Test12345', 10),
@@ -100,7 +100,9 @@ async function main() {
     enable_plagiarism: 1
   });
 
-  // 三份提交：s1 本地A图 / s2 本地A图重编码（应高度相似） / s3 COS上的B图（验证COS可查重）
+  // 四份提交：s1 本地A图 / s2 本地A图重编码（应高度相似） / s3 COS上的B图（验证COS可查重）
+  //           / s4 多文件提交（首文件无关B图 + 第二文件A图重编码）——旧实现只取
+  //           files[0] 比对，第二份文件的抄袭会漏检；多文件改造后应按最高相似度检出
   let s3Path;
   if (isCOSConfigured) {
     try {
@@ -113,34 +115,40 @@ async function main() {
   }
   if (!s3Path) s3Path = 'uploads/202608/plagtest_b.png';
 
-  const fileEntries = [
-    { file: 'uploads/202608/plagtest_a.png', name: 'plagtest_a.png' },
-    { file: 'uploads/202608/plagtest_acopy.jpg', name: 'plagtest_acopy.jpg' },
-    { file: s3Path, name: 'plagtest_b.png' }
+  const submissionFiles = [
+    [{ file: 'uploads/202608/plagtest_a.png', name: 'plagtest_a.png' }],
+    [{ file: 'uploads/202608/plagtest_acopy.jpg', name: 'plagtest_acopy.jpg' }],
+    [{ file: s3Path, name: 'plagtest_b.png' }],
+    [
+      { file: 'uploads/202608/plagtest_b.png', name: 'plagtest_b.png' },
+      { file: 'uploads/202608/plagtest_acopy.jpg', name: '我的作业.jpg' }
+    ]
   ];
   ctx.submissions = [];
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < submissionFiles.length; i++) {
     const sub = await Submission.create({
       assignment_id: ctx.assignment.id,
       student_id: ctx.students[i].id,
       status: 'submitted',
       submitted_at: new Date()
     });
-    const abs = fileEntries[i].file.startsWith('cos://')
-      ? path.join(UPLOADS, 'plagtest_b.png')
-      : path.join(UPLOADS, path.basename(fileEntries[i].file));
-    await SubmissionFile.create({
-      submission_id: sub.id,
-      original_name: fileEntries[i].name,
-      file_path: fileEntries[i].file,
-      file_size: fs.statSync(abs).size,
-      mime_type: 'image/png',
-      file_hash: null,
-      is_cleaned: 0
-    });
+    for (const fe of submissionFiles[i]) {
+      const abs = fe.file.startsWith('cos://')
+        ? path.join(UPLOADS, 'plagtest_b.png')
+        : path.join(UPLOADS, path.basename(fe.file));
+      await SubmissionFile.create({
+        submission_id: sub.id,
+        original_name: fe.name,
+        file_path: fe.file,
+        file_size: fs.statSync(abs).size,
+        mime_type: 'image/png',
+        file_hash: null,
+        is_cleaned: 0
+      });
+    }
     ctx.submissions.push(sub);
   }
-  console.log(`  已创建 ${ctx.submissions.length} 份提交（s3=${s3Path}）`);
+  console.log(`  已创建 ${ctx.submissions.length} 份提交（s3=${s3Path}，s4 为双文件提交）`);
 
   // ---------- 2. 登录并触发全班查重任务 ----------
   console.log('\n[2] 触发全班查重（应立即返回任务，而非同步等结果）');
@@ -155,7 +163,7 @@ async function main() {
   const task = createRes.data.data.task;
   check('batch-check 立即返回（<3s）', elapsed < 3000, `耗时 ${elapsed}ms`);
   check('返回任务对象', !!task && !!task.taskId, JSON.stringify(createRes.data.data).slice(0, 200));
-  check('任务总对数 = C(3,2) = 3', task.totalPairs === 3, `totalPairs=${task?.totalPairs}`);
+  check('任务总对数 = C(4,2) = 6', task.totalPairs === 6, `totalPairs=${task?.totalPairs}`);
 
   // 重复触发应幂等返回进行中的任务
   const dupRes = await api.post(`/api/plagiarism/batch-check/${ctx.assignment.id}`, null, {
@@ -182,14 +190,14 @@ async function main() {
   console.log();
   check('任务在超时前完成', !!final && final.task.status === 'done', `status=${final?.task.status} err=${final?.task.errorMsg}`);
   if (!final || final.task.status !== 'done') throw new Error('任务未完成，中止后续断言');
-  check('进度字段可见（观测到 processing 中间进度）', sawProgress || final.task.totalPairs <= 3);
-  check('完成对数 = 3', final.task.completedPairs === 3, `completedPairs=${final.task.completedPairs}`);
-  check('汇总 totalComparisons = 3（无序对去重）', final.summary.totalComparisons === 3, `got=${final.summary.totalComparisons}`);
+  check('进度字段可见（观测到 processing 中间进度）', sawProgress || final.task.totalPairs <= 6);
+  check('完成对数 = 6', final.task.completedPairs === 6, `completedPairs=${final.task.completedPairs}`);
+  check('汇总 totalComparisons = 6（无序对去重）', final.summary.totalComparisons === 6, `got=${final.summary.totalComparisons}`);
 
   // ---------- 4. 数据库对称性断言 ----------
   console.log('\n[4] 断言 plagiarism_results 双向写入与对称分数');
   const rows = await PlagiarismResult.findAll({ where: { assignment_id: ctx.assignment.id } });
-  check('结果行数 = 3对 × 2方向 = 6', rows.length === 6, `实际 ${rows.length}`);
+  check('结果行数 = 6对 × 2方向 = 12', rows.length === 12, `实际 ${rows.length}`);
   const byPair = {};
   for (const r of rows) {
     const key = r.submission_id < r.compared_with_id
@@ -215,16 +223,26 @@ async function main() {
     (r.submissionId === ctx.submissions[0].id && r.comparedWithId === ctx.submissions[1].id) ||
     (r.submissionId === ctx.submissions[1].id && r.comparedWithId === ctx.submissions[0].id)));
 
-  // 与 s3（COS 上的 B 图）的两对应已成功计算（done 而非 error）→ COS 可查重
+  // 多文件提交 s4（首文件 B 图无关、第二文件 A 图重编码）：提交对应取跨文件最高相似度，
+  // 第二份文件的抄袭被检出（旧实现只取 files[0] 时此处必漏检）
+  const key14 = ctx.submissions[0].id < ctx.submissions[3].id
+    ? `${ctx.submissions[0].id}_${ctx.submissions[3].id}` : `${ctx.submissions[3].id}_${ctx.submissions[0].id}`;
+  const sim14 = parseFloat(byPair[key14][0].similarity_score);
+  check('多文件提交 vs A图 相似度 > 50（第二文件的抄袭被检出）', sim14 > 50, `sim=${sim14}`);
+  const det14 = byPair[key14][0].details;
+  check('details.file_pairs 记录 2 个文件组合分解', Array.isArray(det14?.file_pairs) && det14.file_pairs.length === 2,
+    JSON.stringify(det14?.file_pairs || null).slice(0, 160));
+
+  // 与 s3（COS 上的 B 图）的三对应已成功计算（done 而非 error）→ COS 可查重
   const cosPairs = Object.entries(byPair).filter(([key]) => key.includes(`${ctx.submissions[2].id}`));
-  check('COS 文件参与 2 对比对且状态 done', cosPairs.length === 2 && cosPairs.every(([, p]) => p.every(x => x.status === 'done')),
+  check('COS 文件参与 3 对比对且状态 done', cosPairs.length === 3 && cosPairs.every(([, p]) => p.every(x => x.status === 'done')),
     JSON.stringify(cosPairs.map(([, p]) => p.map(x => x.status))));
 
   // ---------- 5. 单份查重（同步接口，COS 兼容） ----------
   console.log('\n[5] 单份查重接口');
   const single = await tapi.post(`/api/plagiarism/check/${ctx.assignment.id}/${ctx.submissions[0].id}`);
   check('单份查重返回 200', single.status === 200 && single.data.code === 200);
-  check('单份查重对比了其他 2 份提交', single.data.data.totalCompared === 2, `totalCompared=${single.data.data.totalCompared}`);
+  check('单份查重对比了其他 3 份提交', single.data.data.totalCompared === 3, `totalCompared=${single.data.data.totalCompared}`);
 
   // ---------- 6. 权限校验 ----------
   console.log('\n[6] 权限校验（学生无权访问查重）');
