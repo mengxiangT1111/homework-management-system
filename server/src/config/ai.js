@@ -38,7 +38,13 @@ const config = {
     // 双评分差阈值（按满分归一化，0.05 = 满分的 5%）
     dualGradeTau: Number(process.env.GRADING_DUAL_TAU) || 0.05,
     // 双评第二次调用的采样温度（首次固定 0.1；双评需引入采样随机性才有意义）
-    dualGradeTemperature: Number(process.env.GRADING_DUAL_TEMPERATURE) || 0.7
+    dualGradeTemperature: Number(process.env.GRADING_DUAL_TEMPERATURE) || 0.7,
+    // ===== L1 查重×批改联动 =====
+    // 批改回写前查该提交的查重最高相似度，≥ 此值（百分比）则强制转人工复核，
+    // 让教师在复核 AI 分数的同时看到查重证据。设为 0 关闭联动。默认 50（查重可疑线）
+    plagiarismReviewThreshold: process.env.GRADING_PLAGIARISM_REVIEW_THRESHOLD === undefined
+      || process.env.GRADING_PLAGIARISM_REVIEW_THRESHOLD === ''
+      ? 50 : Number(process.env.GRADING_PLAGIARISM_REVIEW_THRESHOLD)
   },
   // 主模型连续失败 N 次触发熔断，冷却期内优先走备用模型
   breaker: {

@@ -3,7 +3,7 @@
  */
 const { Op } = require('sequelize');
 const {
-  GradingTask, GradingReview, GradingResult, Submission, Assignment, User
+  GradingTask, GradingReview, GradingResult, Submission, Assignment, User, PlagiarismResult
 } = require('../models');
 const gradingService = require('../services/grading/grading.service');
 const { success, fail, paginate, normalizePage } = require('../utils/response');
@@ -113,6 +113,20 @@ exports.reviewQueue = async (req, res, next) => {
       offset: (page - 1) * pageSize,
       limit: pageSize
     });
+    // L1 查重×批改联动：附带每份提交的查重最高相似度，复核时同屏展示查重证据
+    const subIds = rows.map(r => r.submission_id);
+    const plagRows = subIds.length ? await PlagiarismResult.findAll({
+      where: { submission_id: subIds, status: 'done' },
+      attributes: ['submission_id', 'similarity_score']
+    }) : [];
+    const plagMaxBySubmission = {};
+    for (const p of plagRows) {
+      const s = parseFloat(p.similarity_score) || 0;
+      if (!(p.submission_id in plagMaxBySubmission) || s > plagMaxBySubmission[p.submission_id]) {
+        plagMaxBySubmission[p.submission_id] = s;
+      }
+    }
+
     return paginate(res, rows.map(r => {
       const json = r.toJSON();
       // 数值化，避免 DECIMAL 字符串
@@ -123,6 +137,7 @@ exports.reviewQueue = async (req, res, next) => {
       }
       json.original_score = Number(json.original_score);
       if (json.final_score !== null && json.final_score !== undefined) json.final_score = Number(json.final_score);
+      json.plagiarism_max_score = plagMaxBySubmission[r.submission_id] ?? null;
       return json;
     }), count, page, pageSize);
   } catch (err) { next(err); }

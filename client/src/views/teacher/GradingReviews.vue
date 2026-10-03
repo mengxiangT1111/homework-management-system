@@ -33,6 +33,16 @@
             </el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="查重" width="85" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.plagiarism_max_score !== null && row.plagiarism_max_score !== undefined"
+              :type="row.plagiarism_max_score > 70 ? 'danger' : row.plagiarism_max_score > 40 ? 'warning' : 'success'"
+              size="small" style="cursor:default">
+              {{ Math.round(row.plagiarism_max_score) }}%
+            </el-tag>
+            <span v-else class="placeholder-text">—</span>
+          </template>
+        </el-table-column>
         <el-table-column label="触发原因" min-width="220">
           <template #default="{ row }">
             <span v-if="row.result?.review_reasons?.length" class="reason-text">{{ row.result.review_reasons.join('；') }}</span>
@@ -69,6 +79,10 @@
     <!-- 复核对话框 -->
     <el-dialog v-model="reviewVisible" title="人工复核 AI 批改" width="720px" top="3vh">
       <div v-if="current">
+        <!-- L1 查重×批改联动：复核 AI 分数时同屏提示查重证据 -->
+        <el-alert v-if="current.plagiarism_max_score !== null && current.plagiarism_max_score !== undefined"
+          :title="`该提交查重最高相似度 ${Math.round(current.plagiarism_max_score)}%` + (current.plagiarism_max_score > 70 ? '（高度可疑，建议核对两份原件后酌情处理）' : '（可疑，请结合查重证据复核给分）')"
+          :type="current.plagiarism_max_score > 70 ? 'error' : 'warning'" :closable="false" style="margin-bottom:12px" />
         <GradingResultCard :result="reviewPayload" :show-review-reasons="true" />
 
         <el-divider />

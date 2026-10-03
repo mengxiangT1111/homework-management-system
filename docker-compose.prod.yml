@@ -82,6 +82,8 @@ services:
       GRADING_DUAL_GRADE: ${GRADING_DUAL_GRADE:-0}       # 1=启用同题二次批改，分差过大转人工复核
       GRADING_DUAL_TAU: ${GRADING_DUAL_TAU:-0.05}        # 双评分差阈值（按满分归一化）
       GRADING_DUAL_TEMPERATURE: ${GRADING_DUAL_TEMPERATURE:-0.7} # 双评第二次采样温度
+      # ===== L1 查重×批改联动（查重高相似的提交 AI 批改强制转人工复核） =====
+      GRADING_PLAGIARISM_REVIEW_THRESHOLD: ${GRADING_PLAGIARISM_REVIEW_THRESHOLD:-50} # 相似度阈值(%)，0=关闭
       # ===== 可选：腾讯云 COS（留空则作业文件存本地数据卷） =====
       COS_SECRET_ID: ${COS_SECRET_ID:-}
       COS_SECRET_KEY: ${COS_SECRET_KEY:-}

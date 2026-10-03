@@ -91,6 +91,9 @@
         <div class="grade-student">
           <strong>{{ current.real_name }}</strong>（{{ current.username }}）
           <span style="margin-left:12px;color:var(--text-light)">提交于 {{ current.submission && formatTime(current.submission.submitted_at) }}</span>
+          <el-tag v-if="current._plagiarismScore !== undefined"
+            :type="current._plagiarismScore > 70 ? 'danger' : current._plagiarismScore > 40 ? 'warning' : 'success'"
+            size="small" style="margin-left:12px">查重最高相似 {{ current._plagiarismScore }}%</el-tag>
         </div>
 
         <!-- 文件列表 -->

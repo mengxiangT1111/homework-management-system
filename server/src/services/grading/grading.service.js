@@ -11,7 +11,7 @@ const mammoth = require('mammoth');
 const config = require('../../config/ai');
 const {
   sequelize, GradingTask, GradingResult, GradingReview,
-  Submission, SubmissionFile, User, Assignment, Notification
+  Submission, SubmissionFile, User, Assignment, Notification, PlagiarismResult
 } = require('../../models');
 const llmClient = require('./llmClient');
 const promptService = require('../prompt.service');
@@ -242,9 +242,11 @@ async function processTask(task) {
   if (fullScoreHit && config.grading.autoApply && !reasons.includes('总分为满分或0分，属异常高发区间')) {
     reasons.push('AI 判定满分，自动回写前需人工确认');
   }
-  // 分流叠加信号（标定实验 N=100 的两个可用补充，见 config/ai.js 注释）：
+  // 分流叠加信号（见 config/ai.js 注释）：
   // ① A2 双评分差——两次批改分差超过阈值说明结果不稳定；
-  // ② 批次级全量复核——教师建批时勾选（开放性主观题推荐），AI 结果一律经确认后生效
+  // ② 批次级全量复核——教师建批时勾选（开放性主观题推荐），AI 结果一律经确认后生效；
+  // ③ L1 查重×批改联动——该提交查重最高相似度超阈值时强制复核，
+  //    AI 对抄袭件照常给分，教师复核时应同时看到查重证据（两线拧合点）
   const dualTau = config.grading.dualGradeTau * Number(templateJSON.full_score || 100);
   const dualDisagree = dualDiff !== null && dualDiff > dualTau;
   if (dualDisagree) {
@@ -254,11 +256,25 @@ async function processTask(task) {
   if (reviewAll) {
     reasons.push('按批改设置全量人工复核');
   }
+  let plagiarismFlag = false;
+  if (config.grading.plagiarismReviewThreshold > 0) {
+    const maxRow = await PlagiarismResult.findOne({
+      where: { submission_id: t.submission_id, status: 'done' },
+      order: [['similarity_score', 'DESC']],
+      attributes: ['similarity_score']
+    });
+    const maxSim = maxRow ? (parseFloat(maxRow.similarity_score) || 0) : 0;
+    if (maxSim >= config.grading.plagiarismReviewThreshold) {
+      plagiarismFlag = true;
+      reasons.push(`查重最高相似度 ${maxSim.toFixed(0)}%（阈值 ${config.grading.plagiarismReviewThreshold}%），请结合查重证据复核`);
+    }
+  }
   const needsReview = confidence < config.grading.reviewThreshold
     || parsed.missingCount > 0
     || (fullScoreHit && config.grading.autoApply)
     || dualDisagree
-    || reviewAll;
+    || reviewAll
+    || plagiarismFlag;
 
   // 复查任务状态：LLM 期间任务可能被取消（如教师已手动批改，
   // gradeSubmission 会取消该提交的进行中任务）。已取消则放弃结果落库与回写，
