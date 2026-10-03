@@ -612,6 +612,28 @@ class TopologyDetector:
             return self.ocr.predict(abs_path)
         return self.ocr.ocr(abs_path, cls=True)
 
+    def extract_text(self, file_path: str) -> Dict[str, Any]:
+        """整图 OCR 全文提取（AI 批改的手写/图片作答入口，非查重用途）。
+
+        按版面行序（bbox 顶边为主、左边为辅）排序后逐行拼接，尽量恢复阅读顺序。
+        """
+        if not self.ocr:
+            return {'available': False}
+        abs_path = self._resolve_path(file_path)
+        parsed = self._parse_ocr_results(self._run_ocr_engine(abs_path))
+        parsed.sort(key=lambda r: (
+            r['bbox'][1] if len(r['bbox']) >= 2 else 0,
+            r['bbox'][0] if r['bbox'] else 0
+        ))
+        lines = [r['text'] for r in parsed if r.get('text')]
+        avg_conf = (sum(r['confidence'] for r in parsed) / len(parsed)) if parsed else 0.0
+        return {
+            'available': True,
+            'text': '\n'.join(lines),
+            'line_count': len(lines),
+            'avg_confidence': round(avg_conf, 4)
+        }
+
     def _parse_ocr_results(self, ocr_raw: List) -> List[Dict]:
         """
         解析PaddleOCR结果

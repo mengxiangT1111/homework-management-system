@@ -126,6 +126,11 @@ class DetectRequest(BaseModel):
     submission_id: Optional[int] = None
 
 
+class OcrRequest(BaseModel):
+    """整图 OCR 文本提取请求（AI 批改的手写/图片作答入口）"""
+    file_path: str
+
+
 class DetectResponse(BaseModel):
     """检测响应"""
     task_id: str
@@ -212,6 +217,25 @@ def detect_plagiarism(request: DetectRequest):
     except Exception as e:
         logger.error(f"检测失败: {e}")
         raise HTTPException(status_code=500, detail=f"检测失败: {str(e)}")
+
+
+@app.post("/api/ocr")
+def ocr_text(request: OcrRequest):
+    """
+    整图 OCR 文本提取（AI 批改的手写/图片作答入口；同步执行，FastAPI 自动入线程池）
+
+    返回 { available, text, line_count, avg_confidence }；OCR 未启用返回 503
+    """
+    detector = get_detector()
+    if not detector.ocr:
+        raise HTTPException(status_code=503, detail="OCR 未启用：检测服务未安装 PaddleOCR")
+    try:
+        return _json_safe(detector.extract_text(request.file_path))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"OCR 提取失败: {e}")
+        raise HTTPException(status_code=500, detail=f"OCR 提取失败: {str(e)}")
 
 
 @app.get("/api/result/{task_id}", response_model=DetectResponse)

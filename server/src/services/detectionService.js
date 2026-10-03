@@ -9,6 +9,8 @@ const path = require('path');
 // 检测服务URL配置
 const DETECTION_SERVICE_URL = process.env.DETECTION_SERVICE_URL || 'http://localhost:8000';
 const DETECTION_TIMEOUT = parseInt(process.env.DETECTION_TIMEOUT || '60000', 10); // 60秒超时
+// 整图 OCR 文本提取超时：手机拍照的大图 + PP-OCRv4 mobile 单图可达数秒~数十秒
+const OCR_EXTRACT_TIMEOUT = parseInt(process.env.OCR_EXTRACT_TIMEOUT || '120000', 10);
 // 服务间鉴权 token，与 Python 侧 DETECTION_API_TOKEN 共享。
 // 不再有写死在源码里的默认值（源码公开的默认 token 等于没设防）；
 // Python 侧在未配置时同样会生成随机 token —— 两端都必须显式配置才能连通。
@@ -135,6 +137,27 @@ const detectionService = {
     }
   },
   
+  /**
+   * 整图 OCR 文本提取（AI 批改的手写/图片作答入口）
+   * @param {string} filePath - 本地绝对路径（ensureLocalFile 物化后）
+   * @returns {Promise<{available: boolean, text: string, line_count: number, avg_confidence: number}>}
+   *   OCR 未启用（检测服务未装 PaddleOCR）时抛错且 error.unavailable = true
+   */
+  async ocrExtract(filePath) {
+    ensureTokenConfigured();
+    try {
+      const response = await apiClient.post('/api/ocr', { file_path: filePath }, { timeout: OCR_EXTRACT_TIMEOUT });
+      return response.data;
+    } catch (error) {
+      if (error.response && error.response.status === 503) {
+        const e = new Error('OCR 未启用：检测服务未安装 PaddleOCR');
+        e.unavailable = true;
+        throw e;
+      }
+      throw new Error(`OCR 提取失败: ${error.response?.data?.detail || error.message}`);
+    }
+  },
+
   /**
    * 健康检查
    * 注意：Python 侧 /api/health 免鉴权，未配置共享 token 时它会照常返回 healthy，

@@ -14,6 +14,7 @@ const {
   Submission, SubmissionFile, User, Assignment, Notification, PlagiarismResult
 } = require('../../models');
 const llmClient = require('./llmClient');
+const detectionService = require('../detectionService');
 const promptService = require('../prompt.service');
 const templateService = require('./template.service');
 const { isCOSPath, ensureLocalFile } = require('../../utils/fileStorage').helpers;
@@ -31,16 +32,28 @@ function permanentError(message) {
 }
 const r1 = x => Math.round(x * 10) / 10;
 
-// ===== 学生作答文本提取（txt/docx；COS 文件先物化到本地临时目录） =====
-// 返回 { text, tempFiles }：tempFiles 为本次物化产生的临时文件，调用方负责清理
+// ===== 学生作答文本提取（txt/docx/pdf；图片作答走检测服务 OCR；COS 文件先物化到本地） =====
+// 返回 { text, tempFiles, ocrUnavailable }：tempFiles 为本次物化产生的临时文件，
+// 调用方负责清理；ocrUnavailable 标记"存在图片作答但 OCR 不可用"，供上层给出准确报错
+const IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.bmp', '.webp'];
+let _pdfParse = null;
+function getPdfParse() {
+  // 惰性加载：pdf-parse 的入口模块在直接 require 时会执行其自带测试代码
+  // （读仓库里的测试 PDF，CI 环境会崩），必须引 lib/pdf-parse.js
+  if (!_pdfParse) _pdfParse = require('pdf-parse/lib/pdf-parse.js');
+  return _pdfParse;
+}
+
 async function extractSubmissionText(submission) {
   const tempFiles = [];
   if (!submission || !submission.files || submission.files.length === 0) {
     return { text: '', tempFiles };
   }
+
+  // 第一遍：文档类（txt/doc/docx/pdf）——单文件即整份作答，第一个提取到非空文本的生效
   for (const file of submission.files) {
     const ext = path.extname(file.original_name).toLowerCase();
-    if (ext !== '.txt' && ext !== '.docx' && ext !== '.doc') continue;
+    if (ext !== '.txt' && ext !== '.docx' && ext !== '.doc' && ext !== '.pdf') continue;
     let absPath;
     try {
       absPath = await ensureLocalFile(file.file_path);
@@ -55,9 +68,35 @@ async function extractSubmissionText(submission) {
         const result = await mammoth.extractRawText({ path: absPath });
         if (result.value.trim()) return { text: result.value, tempFiles };
       }
+      if (ext === '.pdf') {
+        // 文字版 PDF 直接取文本；扫描版 PDF 提不出文本则继续尝试后续文件（不渲染页面图像做 OCR）
+        const data = await getPdfParse()(fs.readFileSync(absPath));
+        if (data && data.text && data.text.trim()) return { text: data.text, tempFiles };
+      }
     } catch (e) { continue; } // 单文件失败继续尝试下一个
   }
-  return { text: '', tempFiles };
+
+  // 第二遍：图片类（手写作答拍照）——逐张 OCR 后拼接（学生常按页拍照，多图=多页作答）
+  const ocrParts = [];
+  let ocrUnavailable = false;
+  for (const file of submission.files) {
+    const ext = path.extname(file.original_name).toLowerCase();
+    if (!IMAGE_EXTS.includes(ext)) continue;
+    let absPath;
+    try {
+      absPath = await ensureLocalFile(file.file_path);
+    } catch (e) { continue; }
+    if (isCOSPath(file.file_path)) tempFiles.push(absPath);
+    try {
+      const r = await detectionService.ocrExtract(absPath);
+      if (r && r.text && r.text.trim()) ocrParts.push(r.text.trim());
+    } catch (e) {
+      if (e.unavailable) ocrUnavailable = true;
+      console.warn(`[批改] 提交${submission.id} 文件 ${file.original_name} OCR 失败: ${e.message}`);
+    }
+  }
+  if (ocrParts.length > 0) return { text: ocrParts.join('\n'), tempFiles };
+  return { text: '', tempFiles, ocrUnavailable };
 }
 
 // ===== 创建批量批改任务（异步，HTTP 立即返回） =====
@@ -154,7 +193,9 @@ async function processTask(task) {
     tempFiles.push(...extracted.tempFiles);
     let studentAnswer = extracted.text;
     if (!studentAnswer || !studentAnswer.trim()) {
-      throw permanentError('无法提取学生作答文本（仅支持 txt/docx 格式）');
+      throw permanentError(extracted.ocrUnavailable
+        ? '作答为图片但 OCR 不可用：请确认查重检测服务已启动且安装 PaddleOCR'
+        : '无法提取学生作答文本（支持 txt/docx/pdf；图片/手写作答需启用检测服务 OCR）');
     }
     if (studentAnswer.length > MAX_ANSWER_CHARS) {
       studentAnswer = studentAnswer.slice(0, MAX_ANSWER_CHARS) + '\n...（作答过长，已截断）';
@@ -520,5 +561,6 @@ module.exports = {
   getAssignmentProgress,
   getLatestResult,
   submitReview,
-  applyToSubmission
+  applyToSubmission,
+  extractSubmissionText
 };
