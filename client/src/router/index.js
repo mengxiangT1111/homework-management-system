@@ -64,6 +64,7 @@ const routes = [
       { path: 'courses', name: 'AdminCourses', component: () => import('@/views/admin/Courses.vue') },
       { path: 'cleanup', name: 'AdminCleanup', component: () => import('@/views/admin/Cleanup.vue') },
       { path: 'operation-logs', name: 'AdminOperationLogs', component: () => import('@/views/admin/OperationLogs.vue') },
+      { path: 'prompts', name: 'AdminPrompts', component: () => import('@/views/admin/PromptVersions.vue') },
       { path: 'notifications', name: 'AdminNotifications', component: () => import('@/views/Notifications.vue') },
       { path: 'profile', name: 'AdminProfile', component: () => import('@/views/Profile.vue') }
     ]
