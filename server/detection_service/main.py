@@ -14,7 +14,25 @@ import json
 import time
 import logging
 
+import numpy as np
+
 from topology_detector import TopologyDetector, generate_visualization
+
+
+def _json_safe(obj):
+    """numpy 标量转原生类型。
+
+    检测流水线的分数/布尔来自 numpy 运算：np.float64 因继承 float 可被序列化，
+    但 np.bool_ / np.int64 不继承对应内置类型，漏进响应会让 pydantic 抛
+    PydanticSerializationError（线上曾因此把整个服务打挂）。在响应出口统一净化。
+    """
+    if isinstance(obj, np.generic):
+        return obj.item()
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(v) for v in obj]
+    return obj
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -173,7 +191,7 @@ def detect_plagiarism(request: DetectRequest):
     try:
         # 执行检测
         detector = get_detector()
-        result = detector.detect(request.source_path, request.candidate_paths)
+        result = _json_safe(detector.detect(request.source_path, request.candidate_paths))
 
         # 存储结果
         _save_task(task_id, {
@@ -245,8 +263,8 @@ def run_detection(task_id: str, request: DetectRequest):
     """后台执行检测任务"""
     try:
         detector = get_detector()
-        result = detector.detect(request.source_path, request.candidate_paths)
-        
+        result = _json_safe(detector.detect(request.source_path, request.candidate_paths))
+
         detection_tasks[task_id]['status'] = 'completed'
         detection_tasks[task_id]['result'] = result
         logger.info(f"任务 {task_id} 完成")

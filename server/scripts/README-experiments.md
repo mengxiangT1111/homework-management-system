@@ -14,6 +14,8 @@
 | `automation_exp.cjs` | 环境自举：建 40 学生/班级/课程/作业并提交 100 份模拟作业（幂等） | `node scripts/automation_exp.cjs` |
 | `create_templates.cjs` | 批量创建并发布 4 个学科评分模板（幂等） | `node scripts/create_templates.cjs` |
 | `docs/paper_tools/compute_metrics.py` | 终端指标计算：表2/表3/表4 全部数字 + 图2/图3 重绘 | `python compute_metrics.py --teacher t.csv --ai a.csv --theta 0.6 --normalize` |
+| `docs/experiment_data/plagiarism_set_1000/generate_dataset.py` | P2 查重构造测试集：1000 份带图作业（200 组 × 5 档重复度，拓扑/流程/电路/几何四图族），附 ground_truth.csv 真值 | `python generate_dataset.py --groups 200`（档位定义与评测用法见该目录 README） |
+| `docs/experiment_data/grading_set_1000/generate_answers.py` | P1 批改构造测试集：10 个主观题任务 × 1000 份学生答案（10 档质量=10 分数段，4 题带图），输出 golden_set.jsonl（兼容 grading-consistency.js）+ scores.csv | `python generate_answers.py [--limit 10]`（档位定义见该目录 README） |
 
 ## 两条实验流水线
 

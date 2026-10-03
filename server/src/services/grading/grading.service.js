@@ -61,7 +61,7 @@ async function extractSubmissionText(submission) {
 }
 
 // ===== 创建批量批改任务（异步，HTTP 立即返回） =====
-async function createBatchTasks({ teacher, assignmentId, templateId, referenceAnswer, gradingCriteria, mode = 'balanced', force = false }) {
+async function createBatchTasks({ teacher, assignmentId, templateId, referenceAnswer, gradingCriteria, mode = 'balanced', force = false, reviewAll = false }) {
   const assignment = await Assignment.findByPk(assignmentId);
   if (!assignment) throw Object.assign(new Error('作业不存在'), { status: 404 });
   if (teacher.role === 'teacher' && assignment.teacher_id !== teacher.id) {
@@ -109,6 +109,10 @@ async function createBatchTasks({ teacher, assignmentId, templateId, referenceAn
       if (targets.length === 0) throw Object.assign(new Error('所有提交均已有进行中的批改任务'), { status: 422 });
 
       const snapshot = templateService.buildTemplateJSON(template); // 快照固化，重试/审计用同一标准
+      // 批次级选项随快照固化（GradingTask 无独立选项列，避免既有库手工迁移）。
+      // review_all：本批全部结果转人工复核——标定实验显示开放性主观题（作文）
+      // 的 AI 偏差率高（82%）且双评信号也难分离（模型自洽地错），只能靠人工兜底
+      if (reviewAll === true) snapshot._task_options = { ...(snapshot._task_options || {}), review_all: true };
       return await GradingTask.bulkCreate(targets.map(s => ({
         submission_id: s.id,
         assignment_id: assignmentId,
@@ -177,6 +181,7 @@ async function processTask(task) {
     let parsed = null;
     let llmResp = null;
     let parseRetries = 0;
+    let dualDiff = null; // A2 双评的两次总分差（null=未启用，或二次调用失败已降级单评）
     try {
       for (let i = 0; i < 2 && !parsed; i++) {
         parseRetries = i;
@@ -193,6 +198,27 @@ async function processTask(task) {
           parsed = parseGradingOutput(safeParseJSON(llmResp.content), templateJSON);
         } catch (e) {
           if (i === 1) throw new Error(`AI 返回解析失败：${e.message}`); // 可重试错误（非 permanent）
+        }
+      }
+      // A2 自一致性双评（仍在心跳续租作用域内）：更高温度同题二次批改。
+      // 二次调用/解析失败降级单评不阻塞——分差信号缺失只削弱分流，不应让任务失败
+      if (config.grading.dualGrade) {
+        try {
+          const llmResp2 = await llmClient.chatCompletion({
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userMessage }
+            ],
+            temperature: config.grading.dualGradeTemperature,
+            maxTokens: 4096,
+            jsonMode: true
+          });
+          const parsed2 = parseGradingOutput(safeParseJSON(llmResp2.content), templateJSON);
+          const totalA = computeTotalScore(parsed.dimensions, templateJSON);
+          const totalB = computeTotalScore(parsed2.dimensions, templateJSON);
+          dualDiff = Math.abs(totalA - totalB);
+        } catch (e) {
+          dualDiff = null;
         }
       }
     } finally {
@@ -216,9 +242,23 @@ async function processTask(task) {
   if (fullScoreHit && config.grading.autoApply && !reasons.includes('总分为满分或0分，属异常高发区间')) {
     reasons.push('AI 判定满分，自动回写前需人工确认');
   }
+  // 分流叠加信号（标定实验 N=100 的两个可用补充，见 config/ai.js 注释）：
+  // ① A2 双评分差——两次批改分差超过阈值说明结果不稳定；
+  // ② 批次级全量复核——教师建批时勾选（开放性主观题推荐），AI 结果一律经确认后生效
+  const dualTau = config.grading.dualGradeTau * Number(templateJSON.full_score || 100);
+  const dualDisagree = dualDiff !== null && dualDiff > dualTau;
+  if (dualDisagree) {
+    reasons.push(`双评不一致：两次批改分差 ${dualDiff.toFixed(1)} 分（阈值 ${dualTau.toFixed(1)}），结果不稳定`);
+  }
+  const reviewAll = templateJSON._task_options?.review_all === true;
+  if (reviewAll) {
+    reasons.push('按批改设置全量人工复核');
+  }
   const needsReview = confidence < config.grading.reviewThreshold
     || parsed.missingCount > 0
-    || (fullScoreHit && config.grading.autoApply);
+    || (fullScoreHit && config.grading.autoApply)
+    || dualDisagree
+    || reviewAll;
 
   // 复查任务状态：LLM 期间任务可能被取消（如教师已手动批改，
   // gradeSubmission 会取消该提交的进行中任务）。已取消则放弃结果落库与回写，

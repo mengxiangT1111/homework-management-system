@@ -7,7 +7,6 @@
 const { isCOSConfigured, getCOSUrl, getSignedCOSUrl, downloadFromCOS } = require('../config/cos');
 const path = require('path');
 const fs = require('fs');
-const os = require('os');
 
 const COS_PREFIX = 'cos://';
 
@@ -49,10 +48,13 @@ async function ensureLocalFile(filePath) {
     if (!fs.existsSync(abs)) throw new Error('本地文件不存在');
     return abs;
   }
-  // COS 文件：下载到临时目录
+  // COS 文件：下载到 uploads/_detection_tmp（而非 os.tmpdir()）——
+  // 生产环境查重微服务与后端分属两个容器，只有共享卷（uploads）下的路径双方都可见
   const key = extractCOSKey(filePath);
   const filename = path.basename(key);
-  const tmpPath = path.join(os.tmpdir(), `cos_${Date.now()}_${filename}`);
+  const tmpRoot = path.join(__dirname, '../../', process.env.UPLOAD_DIR || 'uploads', '_detection_tmp');
+  fs.mkdirSync(tmpRoot, { recursive: true });
+  const tmpPath = path.join(tmpRoot, `cos_${Date.now()}_${filename}`);
   await downloadFromCOS(key, tmpPath);
   return tmpPath;
 }

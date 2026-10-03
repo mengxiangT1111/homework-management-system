@@ -39,9 +39,12 @@ function parseArgs() {
   return args;
 }
 
-// 从 review_reasons 原因串反解五信号（串的文案见 grading.service.js / gradingResultParser.js）
+// 从 review_reasons 原因串反解信号（串的文案见 grading.service.js / gradingResultParser.js）
+// 五信号：满分/0分异常、作答过短、钳制、格式重试、维度缺失
+// 第六信号（A2 双评，需 GRADING_DUAL_GRADE=1 批改才会产生）：双评不一致
 function extractSignals(reasons) {
-  const s = { parse_retry: 0, clamp_count: 0, missing_count: 0, extreme_total: 0, short_answer: 0 };
+  const s = { parse_retry: 0, clamp_count: 0, missing_count: 0, extreme_total: 0, short_answer: 0,
+              dual_disagree: 0, dual_diff: 0 };
   for (const r of reasons || []) {
     if (/格式异常/.test(r)) s.parse_retry = 1;
     const clamp = r.match(/(\d+)\s*个维度分数越界/);
@@ -51,6 +54,9 @@ function extractSignals(reasons) {
     // 满分/0分异常有两条文案：置信度扣分的"总分为满分或0分"与自动回写的"AI 判定满分"
     if (/满分或0分|判定满分/.test(r)) s.extreme_total = 1;
     if (/作答过短/.test(r)) s.short_answer = 1;
+    // A2 双评文案：双评不一致：两次批改分差 X.X 分（阈值 Y.Y 分）
+    const dual = r.match(/双评不一致：两次批改分差 ([\d.]+) 分/);
+    if (dual) { s.dual_disagree = 1; s.dual_diff = Number(dual[1]); }
   }
   return s;
 }
@@ -135,7 +141,8 @@ async function main() {
       Number(result.total_score),
       Number(result.confidence),
       result.needs_review ? 1 : 0,
-      sig.parse_retry, sig.clamp_count, sig.missing_count, sig.extreme_total, sig.short_answer
+      sig.parse_retry, sig.clamp_count, sig.missing_count, sig.extreme_total, sig.short_answer,
+      sig.dual_disagree, sig.dual_diff
     ]);
   });
 
@@ -148,7 +155,8 @@ async function main() {
   }
 
   writeCsv(path.join(outDir, 'ai.csv'),
-    ['id', 'ai_score', 'confidence', 'review', 'parse_retry', 'clamp_count', 'missing_count', 'extreme_total', 'short_answer'],
+    ['id', 'ai_score', 'confidence', 'review', 'parse_retry', 'clamp_count', 'missing_count', 'extreme_total', 'short_answer',
+     'dual_disagree', 'dual_diff'],
     aiRows);
   writeCsv(path.join(outDir, 'teacher_template.csv'),
     ['id', 'subject', 'full_score', 'teacher1', 'teacher2'],

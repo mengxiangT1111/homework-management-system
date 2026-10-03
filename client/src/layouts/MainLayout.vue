@@ -133,6 +133,7 @@ const menuConfig = {
       { path: '/teacher/dashboard', title: '仪表盘', icon: 'HomeFilled' },
       { path: '/teacher/assignments', title: '作业管理', icon: 'Document' },
       { path: '/teacher/todos', title: '任务待办', icon: 'Tickets' },
+      { path: '/teacher/analytics', title: '学情分析', icon: 'DataAnalysis' },
       { path: '/teacher/courses', title: '我的课程', icon: 'Reading' }
     ] },
     { label: 'AI 批改', items: [

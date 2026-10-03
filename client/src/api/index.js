@@ -166,6 +166,13 @@ export const gradingApi = {
   updatePromptRouting: (data) => request.put('/grading/prompts/routing', data)
 }
 
+// ===== 学情分析与预警 =====
+export const analyticsApi = {
+  courseProfile: (courseId) => request.get(`/analytics/course/${courseId}/profile`),
+  sendWarning: (courseId, studentId) => request.post(`/analytics/course/${courseId}/warn`, { student_id: studentId }),
+  myProfile: () => request.get('/analytics/my/profile')
+}
+
 // ===== 统计 =====
 export const statsApi = {
   overview: () => request.get('/stats/overview'),

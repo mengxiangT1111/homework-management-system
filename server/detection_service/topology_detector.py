@@ -39,7 +39,12 @@ except ImportError:
 
 # 多级检测的阈值配置
 DEFAULT_THRESHOLDS = {
-    'phash_skip': 20,        # pHash汉明距离 > 20 直接跳过（不进入后续检测）
+    # phash_skip：pHash 汉明距离超过该值才短路后续通道。原 20 过激进——实验
+    # （docs/experiment_data/glm45air/，200 组五档篡改集）显示旋转/缩放类候选
+    # （t3 档）pHash 距离普遍 50-56，被 20 阈值全量短路，ORB/OCR/图结构从未
+    # 执行形成检测盲区（t3 检出率 0%）。放宽到 60：仅 pHash 相似度 <6% 的
+    # 极不相似候选短路，几何变换类进入完整通道
+    'phash_skip': 60,        # pHash汉明距离 > 60 直接跳过（不进入后续检测）
     'phash_suspect': 10,     # pHash汉明距离 < 10 标记为高度可疑
     'orb_min_matches': 15,   # ORB最小匹配数
     'orb_suspect': 30,       # ORB匹配数 > 30 标记为可疑
@@ -48,15 +53,27 @@ DEFAULT_THRESHOLDS = {
     'overall_suspect': 50,   # 综合得分 > 50 标记为可疑
     'overall_high_suspect': 75,  # 综合得分 > 75 标记为高度可疑
 }
+# 实验用环境变量覆盖：PHASH_SKIP 设大值（如 64）可禁用 pHash 初筛短路，
+# 让几何变换类（旋转/缩放）候选仍进入 ORB/OCR/图结构通道
+import os as _os
+_env_skip = _os.environ.get('PHASH_SKIP')
+if _env_skip is not None and _env_skip.isdigit():
+    DEFAULT_THRESHOLDS['phash_skip'] = int(_env_skip)
 
 
 # 综合评分权重
+# 2026-10 实验重标定（docs/experiment_data/glm45air/fusion_offline.py，800 正对
+# + 1600 负对，5 折交叉验证测试 AUC 0.955±0.014，五折一致选中该权重方向）：
+# 原版 graph 0.50 主导的固定权重在同主题负对上失效（同族无关拓扑图 graph 相似度
+# 反而偏高，融合 AUC 跌破 0.5）。重标定后 pHash 与 OCR 文本为主导证据，
+# 图结构降为辅助证据。图结构通道自身的同主题区分度改进（规模惩罚/更细 GED）
+# 是后续工作
 DEFAULT_WEIGHTS = {
-    'image_hash': 0.10,     # 感知哈希权重
-    'orb': 0.10,            # ORB特征匹配权重
-    'text': 0.20,           # 文本相似度权重
-    'graph': 0.50,          # 图结构相似度权重
-    'node_type': 0.10,      # 节点类型分布权重
+    'image_hash': 0.40,     # 感知哈希权重
+    'orb': 0.05,            # ORB特征匹配权重
+    'text': 0.50,           # 文本相似度权重
+    'graph': 0.05,          # 图结构相似度权重
+    'node_type': 0.10,      # 节点类型分布权重（当前评分公式未使用，保留字段）
 }
 
 
@@ -385,8 +402,8 @@ class TopologyDetector:
                 'orb_match_count': matched_imgs,
                 'text_similarity': text_similarity,
                 'graph_similarity': 0,
-                'is_isomorphic': similarity_score == 100,
-                'is_suspicious': similarity_score > 50,
+                'is_isomorphic': bool(similarity_score == 100),
+                'is_suspicious': bool(similarity_score > 50),
                 'doc_type': 'text' if src_fp['doc_text'] and not src_fp['doc_images'] else ('image' if src_fp['doc_images'] and not src_fp['doc_text'] else 'mixed')
             })
 
@@ -436,7 +453,7 @@ class TopologyDetector:
             # 如果哈希距离太大，直接跳过后续检测
             if hash_dist > self.thresholds['phash_skip']:
                 result['similarity_score'] = hash_score * 0.3
-                result['is_suspicious'] = result['similarity_score'] > self.thresholds['overall_suspect']
+                result['is_suspicious'] = bool(result['similarity_score'] > self.thresholds['overall_suspect'])
                 return result
 
         # ========== 第二级：ORB特征匹配 ==========
@@ -465,13 +482,13 @@ class TopologyDetector:
             else:
                 # 结构相似度计算
                 struct_result = compute_structure_similarity(src_graph, cand_graph)
-                result['graph_similarity'] = struct_result.get('structure_similarity', 0)
-                result['is_isomorphic'] = struct_result.get('is_isomorphic', False)
+                result['graph_similarity'] = float(struct_result.get('structure_similarity', 0) or 0)
+                result['is_isomorphic'] = bool(struct_result.get('is_isomorphic', False))
                 result['details']['structure'] = {
                     'node_count_diff': struct_result.get('node_count_diff', 0),
                     'edge_count_diff': struct_result.get('edge_count_diff', 0),
                     'ged_similarity': struct_result.get('ged_similarity', 0),
-                    'is_isomorphic': struct_result.get('is_isomorphic', False)
+                    'is_isomorphic': bool(struct_result.get('is_isomorphic', False))
                 }
 
                 # 节点类型分布比对
@@ -503,7 +520,8 @@ class TopologyDetector:
             result['graph_similarity'] = orb_score
 
         # ========== 综合评分 ==========
-        result['similarity_score'] = self._compute_overall_score(result)
+        # float() 兜底：加权求和的各分量含 numpy 标量时结果会是 float64，pydantic 无法序列化
+        result['similarity_score'] = float(self._compute_overall_score(result))
 
         # 如果所有指标都是0（OCR/图结构都失败），用pHash兜底
         if result['similarity_score'] == 0 and result['image_hash_score'] == 0 and result['orb_match_count'] == 0:
@@ -515,8 +533,8 @@ class TopologyDetector:
                 pass
 
         # ========== 可疑判定 ==========
-        result['is_suspicious'] = result['similarity_score'] > self.thresholds['overall_suspect']
-        result['is_highly_suspicious'] = result['similarity_score'] > self.thresholds['overall_high_suspect']
+        result['is_suspicious'] = bool(result['similarity_score'] > self.thresholds['overall_suspect'])
+        result['is_highly_suspicious'] = bool(result['similarity_score'] > self.thresholds['overall_high_suspect'])
 
         return result
     
@@ -539,8 +557,12 @@ class TopologyDetector:
             result['graph_similarity'] * w['graph']
         )
         
-        # 如果同构，额外加分
-        if result.get('is_isomorphic'):
+        # 如果同构且图相似度确实高，额外加分。
+        # 无条件同构加分是误报放大器：同主题无关图（如两份不同的家庭网络拓扑）
+        # 也常满足图同构，实验中同族负对 90% 被加分推过可疑阈值。
+        # 收紧为双条件：结构同构 且 graph_similarity ≥ 80（离线重放验证两种
+        # 条件在本数据集上等价，收紧版对未见数据更防御）
+        if result.get('is_isomorphic') and result['graph_similarity'] >= 80:
             score = score * 1.2  # 同构加分20%
         
         # 如果综合评分低但pHash很高（图结构提取失败的情况），用pHash顶替

@@ -263,7 +263,7 @@ def compute_structure_similarity(graph1: nx.Graph, graph2: nx.Graph) -> Dict[str
     result['avg_degree_diff'] = abs(avg_deg1 - avg_deg2)
     
     # 同构检测
-    result['is_isomorphic'] = compute_graph_isomorphism(graph1, graph2)
+    result['is_isomorphic'] = bool(compute_graph_isomorphism(graph1, graph2))
     
     # 图编辑距离
     ged, ged_sim = compute_graph_edit_distance(graph1, graph2, timeout=30)
@@ -281,13 +281,19 @@ def compute_structure_similarity(graph1: nx.Graph, graph2: nx.Graph) -> Dict[str
         avg_deg_sim = 1 - result['avg_degree_diff'] / max(avg_deg1, avg_deg2, 1)
         
         result['structure_similarity'] = (
-            node_sim * 0.3 + 
-            edge_sim * 0.3 + 
-            density_sim * 0.2 + 
-            avg_deg_sim * 0.1 + 
+            node_sim * 0.3 +
+            edge_sim * 0.3 +
+            density_sim * 0.2 +
+            avg_deg_sim * 0.1 +
             ged_sim / 100 * 0.1
         ) * 100
-    
+
+    # numpy 标量（ged 路径的 float64 等）pydantic 无法序列化，统一转原生类型
+    for k in ('density_diff', 'avg_degree_diff', 'ged_similarity', 'structure_similarity'):
+        if result[k] is not None:
+            result[k] = float(result[k])
+    if result['ged'] is not None:
+        result['ged'] = float(result['ged'])
     return result
 
 

@@ -112,11 +112,12 @@ docker-compose -f docker-compose.prod.yml --env-file .env up -d --build
 docker-compose -f docker-compose.prod.yml ps
 ```
 
-预期输出（三个服务都是 `Up`）：
+预期输出（四个服务都是 `Up`）：
 ```
 NAME            STATUS         PORTS
 hw_mysql        Up (healthy)   3306/tcp
 hw_backend      Up             3000/tcp
+hw_detection    Up (healthy)   8000/tcp
 hw_frontend     Up             0.0.0.0:80->80/tcp
 ```
 
@@ -163,6 +164,7 @@ docker-compose -f docker-compose.prod.yml ps
 # 查看日志（排查问题用）
 docker-compose -f docker-compose.prod.yml logs -f          # 全部
 docker logs hw_backend -f --tail 100                        # 只看后端
+docker logs hw_detection -f --tail 100                      # 只看查重检测
 docker logs hw_frontend -f --tail 100                       # 只看前端
 docker logs hw_mysql -f --tail 100                          # 只看数据库
 # 后端容器内还有落盘日志（自动轮转清理，挂载在 backend_logs 卷）：
@@ -213,6 +215,39 @@ cp xxx.key          client/ssl/server.key
 - 重建前端：`docker compose -f docker-compose.prod.yml up -d --build frontend`
 
 免费证书有效期约 3 个月，到期后重新申请、覆盖 `client/ssl/` 里的两个文件，然后 `docker compose -f docker-compose.prod.yml restart frontend` 即可。
+
+仓库自带到期检查脚本 `cert-check.sh`（剩余不足 21 天时告警），`deploy.sh` 每次部署会自动检查一次；建议再加进 crontab 每天自查：
+
+```bash
+crontab -e
+# 添加：
+0 9 * * * cd /opt/homework && bash cert-check.sh
+```
+
+---
+
+## 🔍 查重检测微服务（hw_detection，已随 compose 编排）
+
+查重检测服务（Python FastAPI + OpenCV）已作为第四个容器 `hw_detection` 纳入 `docker-compose.prod.yml`，仅容器内网可访问（不对公网映射端口），与后端共享 `backend_uploads` 卷读取作业文件（COS 文件由后端物化到 `uploads/_detection_tmp` 后检测）。
+
+**启用步骤**（不配置 token 则查重功能禁用，其余功能不受影响）：
+
+```bash
+# 1. 生成强随机 token
+openssl rand -hex 32
+
+# 2. 写入 .env（backend 与 detection 两个容器自动共用此值）
+echo "DETECTION_API_TOKEN=刚生成的值" >> .env
+
+# 3. 重新部署（首次会构建约 600MB 的 Python 镜像，含 OpenCV）
+bash deploy.sh
+```
+
+验证：教师端发起查重不提示"服务未启动"，且 `docker logs hw_detection` 有检测日志。
+
+> ⚠️ 旧版本曾把检测服务独立部署在 compose 之外（宿主机直跑 uvicorn）。升级到本版本后请停掉旧进程，避免两个实例同时接收调用；若 `.env` 里写过 `DETECTION_SERVICE_URL` 宿主机地址，请删除该行（或改为 `http://detection:8000`）。
+
+**关于 OCR**：默认镜像未安装 PaddleOCR，查重的"OCR 文本相似度"维度自动降级跳过（图结构 / pHash / ORB 三维正常工作）。如需启用：编辑 `server/detection_service/requirements.txt`，取消 `paddlepaddle` / `paddleocr` 两行注释后重新 `bash deploy.sh`（镜像约 2GB，构建时间明显变长）。
 
 ---
 
@@ -295,12 +330,12 @@ crontab -e
          ┌────────┴────────┐
          │  hw_backend     │  (Node.js Express)
          │  容器 :3000     │
-         └────────┬────────┘
-                  │
-         ┌────────┴────────┐
-         │  hw_mysql       │  (MySQL 8)
-         │  容器 :3306     │
-         └─────────────────┘
+         └───┬────────┬───┘
+             │        │ 查重检测调用（仅内网）
+   ┌─────────┴───┐ ┌──┴─────────────┐
+   │  hw_mysql   │ │  hw_detection  │  (Python FastAPI)
+   │  容器 :3306 │ │  容器 :8000    │  (查重微服务，不暴露公网)
+   └─────────────┘ └────────────────┘
 ```
 
 ---

@@ -71,6 +71,7 @@ app.use('/api/submissions', require('./routes/submissions'));
 app.use('/api/upload', require('./routes/upload'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/stats', require('./routes/stats'));
+app.use('/api/analytics', require('./routes/analytics'));
 app.use('/api/ai', require('./routes/ai'));
 app.use('/api/files', require('./routes/files'));
 app.use('/api/schools', require('./routes/schools'));

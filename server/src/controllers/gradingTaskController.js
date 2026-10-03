@@ -11,7 +11,7 @@ const { success, fail, paginate, normalizePage } = require('../utils/response');
 // 教师触发批量批改（异步，立即返回）
 exports.createBatch = async (req, res, next) => {
   try {
-    const { assignment_id, template_id, reference_answer, grading_criteria, mode, force } = req.body;
+    const { assignment_id, template_id, reference_answer, grading_criteria, mode, force, review_all } = req.body;
     if (!assignment_id || !template_id) {
       return fail(res, '缺少必要参数：assignment_id、template_id', 422);
     }
@@ -25,7 +25,9 @@ exports.createBatch = async (req, res, next) => {
       referenceAnswer: reference_answer,
       gradingCriteria: grading_criteria,
       mode: mode || 'balanced',
-      force: force === true
+      force: force === true,
+      // 批次级选项：本批全部结果转人工复核（开放性主观题推荐）
+      reviewAll: review_all === true
     });
     return success(res, data, `已创建 ${data.count} 个批改任务，稍后可在列表查看进度`);
   } catch (err) {

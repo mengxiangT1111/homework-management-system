@@ -50,6 +50,15 @@ docs/~$*
 # 大创申请书等个人文档与生成脚本（含个人信息，仅保留在本地）
 server/outputs/
 server/generate_proposal.js
+server/gen-dachuang-report.js
+server/patch-dachuang-footers.py
+docs/*大创*.docx
+
+# 答辩 PPT 等个人项目材料（仅本地）
+projects/
+
+# 小程序头像/logo 设计源稿（多方案设计迭代稿，仅本地）
+docs/小程序头像/
 
 # Python 编译缓存
 __pycache__/

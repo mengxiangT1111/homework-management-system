@@ -10,7 +10,7 @@
   },
   "vueVersion": "3",
   "mp-weixin": {
-    "appid": "touristappid",
+    "appid": "wx633948e39c147d33",
     "setting": {
       "urlCheck": false,
       "es6": true,

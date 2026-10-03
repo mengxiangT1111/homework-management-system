@@ -28,7 +28,17 @@ const config = {
     // 置信度低于此值的结果自动进入人工复核
     reviewThreshold: Number(process.env.GRADING_REVIEW_THRESHOLD) || 0.6,
     // 高置信结果是否自动回写 submissions 分数
-    autoApply: (process.env.GRADING_AUTO_APPLY || '1') === '1'
+    autoApply: (process.env.GRADING_AUTO_APPLY || '1') === '1',
+    // ===== A2 自一致性双评（默认关闭；启用后每份作答 LLM 调用翻倍） =====
+    // 同题用更高温度二次批改，两次总分差超过 tau×满分 → 结果不稳定，转人工复核。
+    // 标定实验（N=100，GLM4）：该信号在结构化题型上与批改误差分离度好
+    // （数学：显著偏差组重复批改极差均值 10.7 vs 正常组 2.0），
+    // 而表面启发式置信度近似失效（对显著偏差的 AUC 仅 0.56）
+    dualGrade: (process.env.GRADING_DUAL_GRADE || '0') === '1',
+    // 双评分差阈值（按满分归一化，0.05 = 满分的 5%）
+    dualGradeTau: Number(process.env.GRADING_DUAL_TAU) || 0.05,
+    // 双评第二次调用的采样温度（首次固定 0.1；双评需引入采样随机性才有意义）
+    dualGradeTemperature: Number(process.env.GRADING_DUAL_TEMPERATURE) || 0.7
   },
   // 主模型连续失败 N 次触发熔断，冷却期内优先走备用模型
   breaker: {

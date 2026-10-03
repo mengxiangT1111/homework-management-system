@@ -97,6 +97,20 @@ else
   echo "✗ 后端 API 无响应（可能正在崩溃循环），请查：docker logs hw_backend"
   HEALTH_FAIL=1
 fi
+# 查重检测服务（配置了 DETECTION_API_TOKEN 才接入；未配置仅提示，不算部署失败）
+DET_TOKEN="$(get_env DETECTION_API_TOKEN)"
+if [ -n "$DET_TOKEN" ]; then
+  if docker exec hw_detection python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)" 2>/dev/null; then
+    echo "✓ 查重检测服务存活"
+  else
+    echo "✗ 查重检测服务无响应，请查：docker logs hw_detection"
+    HEALTH_FAIL=1
+  fi
+else
+  echo "ℹ 未配置 DETECTION_API_TOKEN：查重功能禁用（.env 配置后重新部署即可启用）"
+fi
+# HTTPS 证书到期提醒（剩余不足 21 天告警，不影响部署结果）
+bash cert-check.sh || true
 
 echo ""
 echo "[6/6] 清理悬空旧镜像..."

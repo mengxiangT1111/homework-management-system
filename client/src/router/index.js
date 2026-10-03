@@ -39,6 +39,7 @@ const routes = [
       { path: 'assignments', name: 'TeacherAssignments', component: () => import('@/views/teacher/Assignments.vue') },
       { path: 'assignments/create', name: 'TeacherCreateAssignment', component: () => import('@/views/teacher/CreateAssignment.vue') },
       { path: 'todos', name: 'TeacherTodos', component: () => import('@/views/teacher/Todos.vue') },
+      { path: 'analytics', name: 'TeacherAnalytics', component: () => import('@/views/teacher/Analytics.vue') },
       { path: 'assignments/:id/review', name: 'TeacherReview', component: () => import('@/views/teacher/Review.vue') },
       { path: 'plagiarism', name: 'TeacherPlagiarism', component: () => import('@/views/teacher/PlagiarismCenter.vue') },
       { path: 'grading/templates', name: 'TeacherGradingTemplates', component: () => import('@/views/teacher/GradingTemplates.vue') },
