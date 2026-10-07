@@ -6,10 +6,12 @@
  */
 
 const { Op } = require('sequelize');
+const ExcelJS = require('exceljs');
 const {
-  sequelize, Submission, SubmissionFile, Assignment, User, PlagiarismResult, PlagiarismTask
+  sequelize, Submission, SubmissionFile, Assignment, Course, Class, User, PlagiarismResult, PlagiarismTask
 } = require('../models');
 const { success, fail } = require('../utils/response');
+const { formatCST } = require('../utils/formatCST');
 const detectionService = require('../services/detectionService');
 const { ensureLocalFile, isCOSPath } = require('../utils/fileStorage').helpers;
 const plagiarismService = require('../services/plagiarism/plagiarism.service');
@@ -569,5 +571,128 @@ exports.deleteResults = async (req, res, next) => {
     return success(res, null, '查重结果已删除');
   } catch (error) {
     next(error);
+  }
+};
+
+/** 报告表格细边框（与未交名单导出样式一致） */
+function reportThinBorder() {
+  return {
+    top: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+    left: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+    bottom: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+    right: { style: 'thin', color: { argb: 'FFD9D9D9' } }
+  };
+}
+
+/**
+ * 导出作业查重报告 Excel（P5：概览 + 全量比对明细 + 学生最高相似度）
+ * GET /api/plagiarism/report/:assignmentId
+ */
+exports.exportReport = async (req, res, next) => {
+  try {
+    const { assignmentId } = req.params;
+    const owned = await assertAssignmentOwner(req, res, assignmentId);
+    if (!owned) return;
+
+    const report = await plagiarismService.buildAssignmentReport(assignmentId);
+    if (report.totalComparisons === 0 && report.errorPairCount === 0) {
+      return fail(res, '该作业暂无查重结果，请先执行查重检测', 422);
+    }
+
+    const assignment = await Assignment.findByPk(assignmentId, {
+      include: [{ model: Course, as: 'course', include: [{ model: Class, as: 'class' }] }]
+    });
+    const classTitle = [assignment?.course?.class?.name, assignment?.course?.name]
+      .filter(Boolean).join(' · ');
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = '信衡作业管理系统';
+    workbook.created = new Date();
+
+    // ===== Sheet1 概览 =====
+    const ov = workbook.addWorksheet('概览');
+    ov.mergeCells('A1:B1');
+    ov.getCell('A1').value = `「${assignment?.title || assignmentId}」查重报告`;
+    ov.getCell('A1').font = { size: 14, bold: true };
+    ov.getCell('A1').alignment = { horizontal: 'center', vertical: 'middle' };
+    ov.getRow(1).height = 26;
+
+    const overviewRows = [
+      ['班级 / 课程', classTitle || '—'],
+      ['导出时间', formatCST(new Date())],
+      ['参与比对提交数', report.students.length],
+      ['比对总对数', report.totalComparisons],
+      ['可疑对数（综合相似度 > 50）', report.suspiciousCount],
+      ['高度可疑对数（综合相似度 > 75）', report.highRiskCount],
+      ['失败对数', report.errorPairCount]
+    ];
+    overviewRows.forEach(([k, v]) => {
+      const row = ov.addRow([k, v]);
+      row.getCell(1).font = { bold: true };
+      row.eachCell(cell => cell.border = reportThinBorder());
+    });
+    ov.getColumn(1).width = 30;
+    ov.getColumn(2).width = 36;
+
+    // ===== Sheet2 比对明细（按相似度降序，不截断） =====
+    const dt = workbook.addWorksheet('比对明细');
+    const dtHeaders = ['序号', '学生A', '学生B', '综合相似度%', '图片哈希%', '文本%', '拓扑结构%', 'ORB匹配数', '图同构', '可疑', '涉及文件对'];
+    const dtHead = dt.addRow(dtHeaders);
+    dtHead.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    dtHead.alignment = { horizontal: 'center', vertical: 'middle' };
+    dtHead.eachCell(cell => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF52C4A0' } };
+      cell.border = reportThinBorder();
+    });
+    report.pairs.forEach((p, i) => {
+      const row = dt.addRow([
+        i + 1, p.aName, p.bName,
+        Math.round(p.score * 10) / 10,
+        Math.round(p.imageHash * 10) / 10,
+        Math.round(p.text * 10) / 10,
+        Math.round(p.graph * 10) / 10,
+        p.orb,
+        p.isomorphic ? '是' : '否',
+        p.score > 75 ? '高度可疑' : (p.suspicious ? '可疑' : '—'),
+        p.filePairs
+          ? p.filePairs.map(f => `${f.source_file} × ${f.candidate_file}（${Math.round(f.similarity_score)}%）`).join('；')
+          : ''
+      ]);
+      row.alignment = { horizontal: 'center', vertical: 'middle', wrapText: false };
+      row.eachCell(cell => cell.border = reportThinBorder());
+      // 相似度列按风险着色（口径与网页端一致：>70 高危红 / >40 中危黄）
+      const scoreCell = row.getCell(4);
+      if (p.score > 70) scoreCell.font = { bold: true, color: { argb: 'FFC0392B' } };
+      else if (p.score > 40) scoreCell.font = { color: { argb: 'FFE67E22' } };
+    });
+    [6, 12, 12, 13, 11, 9, 12, 11, 8, 10, 46].forEach((w, i) => { dt.getColumn(i + 1).width = w; });
+
+    // ===== Sheet3 学生最高相似度 =====
+    const st = workbook.addWorksheet('学生最高相似度');
+    const stHeaders = ['序号', '姓名', '最高相似度%', '最相似同学'];
+    const stHead = st.addRow(stHeaders);
+    stHead.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    stHead.alignment = { horizontal: 'center', vertical: 'middle' };
+    stHead.eachCell(cell => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF52C4A0' } };
+      cell.border = reportThinBorder();
+    });
+    report.students.forEach((s, i) => {
+      const row = st.addRow([i + 1, s.name, Math.round(s.score * 10) / 10, s.withName]);
+      row.alignment = { horizontal: 'center', vertical: 'middle' };
+      row.eachCell(cell => cell.border = reportThinBorder());
+      const scoreCell = row.getCell(3);
+      if (s.score > 70) scoreCell.font = { bold: true, color: { argb: 'FFC0392B' } };
+      else if (s.score > 40) scoreCell.font = { color: { argb: 'FFE67E22' } };
+    });
+    [6, 14, 13, 14].forEach((w, i) => { st.getColumn(i + 1).width = w; });
+
+    const fileName = `查重报告_${assignment?.title || assignmentId}_${Date.now()}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    next(err);
   }
 };

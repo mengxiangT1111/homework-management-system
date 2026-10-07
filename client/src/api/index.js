@@ -211,7 +211,8 @@ export const plagiarismApi = {
   topology: (assignmentId, submissionId, comparedWithId) => request.get(`/plagiarism/results/${assignmentId}/${submissionId}/topology/${comparedWithId}`),
   maxScore: (assignmentId, submissionId) => request.get(`/plagiarism/max-score/${assignmentId}/${submissionId}`),
   assignmentSummary: (assignmentId) => request.get(`/plagiarism/assignment-summary/${assignmentId}`),
-  deleteResults: (assignmentId, submissionId) => request.delete(`/plagiarism/results/${assignmentId}/${submissionId}`)
+  deleteResults: (assignmentId, submissionId) => request.delete(`/plagiarism/results/${assignmentId}/${submissionId}`),
+  report: (assignmentId) => `/api/plagiarism/report/${assignmentId}`
 }
 
 // ===== 文件预览/下载 =====

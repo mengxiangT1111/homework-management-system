@@ -354,9 +354,79 @@ async function buildAssignmentSummary(assignmentId) {
   };
 }
 
+/**
+ * 查重报告导出数据（P5）：与 buildAssignmentSummary 的区别——
+ * 明细不截断（全部比对对，非 Top20）且带分维分数与文件对分解，
+ * 学生侧附带"最相似同学"姓名；error 对单独计数不入明细
+ */
+async function buildAssignmentReport(assignmentId) {
+  const rows = await PlagiarismResult.findAll({
+    where: { assignment_id: assignmentId },
+    include: [
+      {
+        model: Submission, as: 'submission',
+        include: [{ model: User, as: 'student', attributes: ['id', 'real_name', 'username'] }]
+      },
+      {
+        model: Submission, as: 'comparedWith',
+        include: [{ model: User, as: 'student', attributes: ['id', 'real_name', 'username'] }]
+      }
+    ],
+    order: [['similarity_score', 'DESC']]
+  });
+
+  const nameOf = (r, side) => {
+    const s = side === 'a' ? r.submission?.student : r.comparedWith?.student;
+    return s?.real_name || s?.username || '未知';
+  };
+
+  const seen = new Set();
+  const pairs = [];
+  let errorPairCount = 0;
+  const bestByStudent = {}; // submissionId -> { name, score, withName }
+  for (const r of rows) {
+    const aId = r.submission_id;
+    const bId = r.compared_with_id;
+    const key = aId < bId ? `${aId}_${bId}` : `${bId}_${aId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (r.status === 'error') { errorPairCount++; continue; }
+    const aName = nameOf(r, 'a');
+    const bName = nameOf(r, 'b');
+    const score = parseFloat(r.similarity_score) || 0;
+    const details = r.details || {};
+    pairs.push({
+      aName, bName, score,
+      imageHash: parseFloat(r.image_hash_score) || 0,
+      text: parseFloat(r.text_similarity) || 0,
+      graph: parseFloat(r.graph_similarity) || 0,
+      orb: r.orb_match_count || 0,
+      isomorphic: r.is_isomorphic === 1,
+      suspicious: r.is_suspicious === 1,
+      filePairs: Array.isArray(details.file_pairs) ? details.file_pairs : null
+    });
+    for (const [id, name, other] of [[aId, aName, bName], [bId, bName, aName]]) {
+      if (!bestByStudent[id] || score > bestByStudent[id].score) {
+        bestByStudent[id] = { name, score, withName: other };
+      }
+    }
+  }
+
+  pairs.sort((x, y) => y.score - x.score);
+  return {
+    totalComparisons: pairs.length,
+    errorPairCount,
+    suspiciousCount: pairs.filter(p => p.suspicious).length,
+    highRiskCount: pairs.filter(p => p.score > 75).length,
+    pairs,
+    students: Object.values(bestByStudent).sort((x, y) => y.score - x.score)
+  };
+}
+
 module.exports = {
   loadValidSubmissionEntries,
   processTask,
   buildAssignmentSummary,
+  buildAssignmentReport,
   DETECT_CALL_TIMEOUT
 };

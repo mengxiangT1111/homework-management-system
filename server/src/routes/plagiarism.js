@@ -6,7 +6,7 @@
 const express = require('express');
 const router = express.Router();
 const { auth, requireRole } = require('../middleware/auth');
-const { plagiarismLimiter } = require('../middleware/rateLimit');
+const { plagiarismLimiter, downloadLimiter } = require('../middleware/rateLimit');
 const plagiarismController = require('../controllers/plagiarismController');
 
 // 所有路由需要登录
@@ -22,6 +22,9 @@ router.get('/task/status/:assignmentId', plagiarismController.getTaskStatus);
 
 // 取消进行中的查重任务
 router.post('/task/cancel/:assignmentId', plagiarismController.cancelTask);
+
+// 导出作业查重报告 Excel（概览 + 全量明细 + 学生最高相似度）
+router.get('/report/:assignmentId', downloadLimiter, plagiarismController.exportReport);
 
 // ===== 参数路由 =====
 

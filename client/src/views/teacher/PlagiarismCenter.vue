@@ -93,6 +93,11 @@
 
       <!-- 查重结果摘要 -->
       <div v-if="!batchLoading && batchResult" class="card-section">
+        <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+          <el-button size="small" type="success" plain @click="exportReport">
+            <el-icon><Download /></el-icon>&nbsp;导出查重报告（Excel）
+          </el-button>
+        </div>
         <div class="summary-grid">
           <div class="summary-card">
             <div class="summary-number">{{ batchResult.total }}</div>
@@ -206,8 +211,8 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { DCaret } from '@element-plus/icons-vue'
-import { assignmentApi, plagiarismApi } from '@/api'
+import { DCaret, Download } from '@element-plus/icons-vue'
+import { assignmentApi, plagiarismApi, downloadFile } from '@/api'
 import PlagiarismDetail from '@/components/PlagiarismDetail.vue'
 
 const loadingAssignments = ref(false)
@@ -281,6 +286,13 @@ function selectAssignment(row) {
   // 加载已有结果 + 若有进行中的查重任务则恢复进度展示
   loadSummary()
   resumeRunningTask()
+}
+
+function exportReport() {
+  downloadFile(
+    plagiarismApi.report(currentAssignment.value.id),
+    `查重报告_${currentAssignment.value.title || ''}.xlsx`
+  )
 }
 
 function backToList() {
