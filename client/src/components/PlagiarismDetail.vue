@@ -31,6 +31,7 @@
             {{ maxSimilarity > 70 ? '高度可疑' : maxSimilarity > 40 ? '中度可疑' : '低风险' }}
           </el-tag>
           <el-tag type="info" effect="plain">共检测 {{ results.length }} 份提交</el-tag>
+          <el-tag v-if="failedPairCount > 0" type="warning" effect="plain">{{ failedPairCount }} 对存在维度检测失败，综合分可能偏低</el-tag>
         </div>
       </div>
 
@@ -55,6 +56,10 @@
                   <WarningFilled />
                 </el-icon>
                 {{ row.studentName || '未知' }}
+                <el-tooltip v-if="row.dimensionFailures?.length"
+                  :content="`检测失败维度：${row.dimensionFailures.join('、')}，该综合分仅供参考`">
+                  <el-icon style="vertical-align:-2px;margin-left:2px" color="var(--el-color-warning)"><WarningFilled /></el-icon>
+                </el-tooltip>
               </div>
             </template>
           </el-table-column>
@@ -141,6 +146,8 @@ const emit = defineEmits(['update:modelValue', 'refresh'])
 const loading = ref(false)
 const error = ref('')
 const results = ref([])
+// C7：存在维度检测失败的比对对数（横幅提示用）
+const failedPairCount = computed(() => results.value.filter(r => r.dimensionFailures?.length).length)
 const recheckLoading = ref(false)
 const radarChartRef = ref(null)
 let radarChart = null

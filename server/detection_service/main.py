@@ -5,7 +5,7 @@ FastAPI 服务入口 - 提供HTTP API供Node.js后端调用
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 import os
@@ -16,7 +16,7 @@ import logging
 
 import numpy as np
 
-from topology_detector import TopologyDetector, generate_visualization
+from topology_detector import TopologyDetector
 
 
 def _json_safe(obj):
@@ -82,8 +82,6 @@ async def verify_token(request: Request, call_next):
 
 # 上传目录配置
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "uploads")))
-VISUALIZATION_DIR = os.path.join(os.path.dirname(__file__), "visualizations")
-os.makedirs(VISUALIZATION_DIR, exist_ok=True)
 
 # 初始化检测器（延迟加载）
 _detector = None
@@ -297,27 +295,6 @@ def run_detection(task_id: str, request: DetectRequest):
         logger.error(f"任务 {task_id} 失败: {e}")
         detection_tasks[task_id]['status'] = 'failed'
         detection_tasks[task_id]['error'] = str(e)
-
-
-@app.get("/api/visualization/{source_file}/{candidate_file}")
-async def get_visualization(source_file: str, candidate_file: str):
-    """
-    获取可视化对比图
-    
-    - **source_file**: 源文件名（不含路径）
-    - **candidate_file**: 候选文件名（不含路径）
-    """
-    # 构建输出路径
-    output_name = f"compare_{source_file}_vs_{candidate_file}.png"
-    output_path = os.path.join(VISUALIZATION_DIR, output_name)
-    
-    # 如果已存在，直接返回
-    if os.path.exists(output_path):
-        return FileResponse(output_path, media_type="image/png")
-    
-    # 否则生成
-    # 这里简化处理，实际应该传入提取结果
-    raise HTTPException(status_code=404, detail="可视化图片未生成")
 
 
 @app.post("/api/preview-extraction")

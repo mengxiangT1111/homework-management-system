@@ -346,8 +346,7 @@ exports.gradeSubmission = async (req, res, next) => {
     let normalizedScore = sub.score;
     if (score !== undefined && score !== null) {
       // 手动批改上限默认 100；有 AI 结果或该作业用过评分模板时以模板满分为准
-      // （评分模板满分允许 1-1000，硬编码 100 会导致 AI 打出 >100 分后教师无法手动修正）。
-      // submissions.score 为 DECIMAL(5,2)，上限同时受 999.9 约束
+      // （评分模板满分允许 1-1000，硬编码 100 会导致 AI 打出 >100 分后教师无法手动修正）
       let maxScore = 100;
       const latestAI = await GradingResult.findOne({
         where: { submission_id: sub.id },
@@ -355,7 +354,7 @@ exports.gradeSubmission = async (req, res, next) => {
         attributes: ['full_score']
       });
       if (latestAI && Number(latestAI.full_score) > 100) {
-        maxScore = Math.min(Number(latestAI.full_score), 999.9);
+        maxScore = Number(latestAI.full_score);
       } else {
         // 无 AI 结果时回查最近一次批改任务用的模板满分（千分制模板也能手动打分）
         const lastTask = await GradingTask.findOne({
@@ -365,7 +364,7 @@ exports.gradeSubmission = async (req, res, next) => {
         });
         if (lastTask) {
           const tpl = await GradingTemplate.findByPk(lastTask.template_id, { attributes: ['full_score'] });
-          if (tpl && Number(tpl.full_score) > 100) maxScore = Math.min(Number(tpl.full_score), 999.9);
+          if (tpl && Number(tpl.full_score) > 100) maxScore = Number(tpl.full_score);
         }
       }
       const s = Number(score);

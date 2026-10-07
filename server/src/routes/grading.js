@@ -30,6 +30,8 @@ router.post('/tasks/:id/cancel', requireRole('teacher', 'admin'), taskCtrl.cance
 router.get('/results/submission/:submissionId', taskCtrl.resultBySubmission);
 router.get('/reviews', requireRole('teacher', 'admin'), taskCtrl.reviewQueue);
 router.post('/reviews/:id', requireRole('teacher', 'admin'), taskCtrl.submitReview);
+// 认领复核工单（B3）
+router.post('/reviews/:id/claim', requireRole('teacher', 'admin'), taskCtrl.claimReview);
 
 // ===== 提示词版本管理（管理员） =====
 router.get('/prompts', requireRole('admin'), promptCtrl.listVersions);

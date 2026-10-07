@@ -4,12 +4,13 @@
 
     <div class="card-section">
       <!-- 状态筛选（切换须回到第 1 页，避免停留在大页码时列表空白） -->
-      <el-radio-group v-model="filterStatus" style="margin-bottom:16px" @change="() => { page = 1; loadList() }">
+      <el-radio-group v-model="filterStatus" style="margin-bottom:16px;vertical-align:middle" @change="() => { page = 1; loadList() }">
         <el-radio-button value="pending">待复核（{{ pendingCount }}）</el-radio-button>
         <el-radio-button value="approved">已通过</el-radio-button>
         <el-radio-button value="adjusted">已调整</el-radio-button>
         <el-radio-button value="rejected">已否决</el-radio-button>
       </el-radio-group>
+      <el-checkbox v-if="isTeacher" v-model="onlyMine" style="margin-left:12px;margin-bottom:16px" @change="() => { page = 1; loadList() }">只看我认领的</el-checkbox>
 
       <el-table :data="list" v-loading="loading" stripe>
         <el-table-column label="学生" width="100">
@@ -40,6 +41,13 @@
               size="small" style="cursor:default">
               {{ Math.round(row.plagiarism_max_score) }}%
             </el-tag>
+            <span v-else class="placeholder-text">—</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="认领人" width="95" align="center">
+          <template #default="{ row }">
+            <span v-if="row.assigned_name">{{ row.assigned_name }}</span>
+            <el-button v-else-if="row.status === 'pending' && isTeacher" link type="primary" @click="claim(row)">认领</el-button>
             <span v-else class="placeholder-text">—</span>
           </template>
         </el-table-column>
@@ -138,8 +146,13 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import GradingResultCard from '@/components/GradingResultCard.vue'
+import { useAuthStore } from '@/stores/auth'
 import { gradingApi } from '@/api'
 import { REVIEW_STATUS, statusOf } from '@/utils/statusMaps'
+
+const authStore = useAuthStore()
+const isTeacher = computed(() => authStore.user?.role === 'teacher')
+const onlyMine = ref(false)
 
 const list = ref([])
 const total = ref(0)
@@ -179,11 +192,14 @@ const formatTime = (t) => new Date(t).toLocaleString('zh-CN')
 async function loadList() {
   loading.value = true
   try {
-    const res = await gradingApi.reviews({ status: filterStatus.value, page: page.value, pageSize })
+    const res = await gradingApi.reviews({
+      status: filterStatus.value, page: page.value, pageSize,
+      ...(onlyMine.value ? { mine: 1 } : {})
+    })
     list.value = res.data.list
     total.value = res.data.total
-    // 待复核数量角标（无论当前筛选什么状态）
-    if (filterStatus.value === 'pending') pendingCount.value = res.data.total
+    // 待复核数量角标（无论当前筛选什么状态；认领筛选下不覆盖全局角标）
+    if (filterStatus.value === 'pending' && !onlyMine.value) pendingCount.value = res.data.total
   } catch (e) {
     ElMessage.error(e.response?.data?.message || '加载复核队列失败')
   } finally { loading.value = false }
@@ -194,6 +210,14 @@ async function loadPendingCount() {
     const res = await gradingApi.reviews({ status: 'pending', page: 1, pageSize: 1 })
     pendingCount.value = res.data.total
   } catch (e) { /* 忽略 */ }
+}
+
+async function claim(row) {
+  try {
+    const res = await gradingApi.claimReview(row.id)
+    ElMessage.success(res.message || '已认领')
+    loadList()
+  } catch (e) { /* request.js 统一提示 */ }
 }
 
 function handlePage(p) { page.value = p; loadList() }

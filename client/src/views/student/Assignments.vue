@@ -2,7 +2,7 @@
   <div class="page-container">
     <div class="page-title">作业列表</div>
 
-    <div class="card-section">
+    <div class="card-section" v-loading="loading">
       <div class="table-toolbar">
         <div class="toolbar-filters">
           <el-input v-model="keyword" placeholder="搜索作业标题，回车搜索" clearable style="width:260px" @clear="search" @keyup.enter="search">

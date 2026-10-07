@@ -443,6 +443,10 @@ class TopologyDetector:
             'is_suspicious': False,
             'details': {}
         }
+        # 单维度失败标记（C7）：异常吞掉置 0 会静默拉低综合分，这里显式记录
+        # 失败维度供前端提示"结果不确定"。正常性缺失（如纯几何图无 OCR 文本）
+        # 不算失败，不标记
+        dimension_failures = []
 
         # ========== 第一级：感知哈希初筛 ==========
         if src_fp['phash'] and cand_fp['phash']:
@@ -464,6 +468,7 @@ class TopologyDetector:
             result['orb_match_count'] = orb_count
         except Exception as e:
             print(f"ORB匹配失败: {e}")
+            dimension_failures.append('ORB特征匹配')
 
         # ========== 第三级：OCR文本比对 ==========
         if self.ocr and src_fp['ocr_results'] and cand_fp['ocr_results']:
@@ -471,6 +476,7 @@ class TopologyDetector:
                 result['text_similarity'] = compute_text_similarity(src_fp['ocr_results'], cand_fp['ocr_results'])
             except Exception as e:
                 print(f"文本相似度计算失败: {e}")
+                dimension_failures.append('OCR文本比对')
 
         # ========== 第四级：图结构比对 ==========
         src_graph = src_fp['graph']
@@ -517,7 +523,11 @@ class TopologyDetector:
 
         except Exception as e:
             print(f"图结构比对失败: {e}")
+            dimension_failures.append('图结构比对')
             result['graph_similarity'] = orb_score
+
+        if dimension_failures:
+            result['details']['dimension_failures'] = dimension_failures
 
         # ========== 综合评分 ==========
         # float() 兜底：加权求和的各分量含 numpy 标量时结果会是 float64，pydantic 无法序列化
@@ -916,101 +926,3 @@ class TopologyDetector:
         return min(similarity, 100.0)
 
 
-def generate_visualization(source_path: str,
-                           candidate_path: str,
-                           src_extraction: Dict,
-                           cand_extraction: Dict,
-                           output_path: str) -> str:
-    """
-    生成可视化对比图
-    
-    Args:
-        source_path: 源图像路径
-        candidate_path: 候选图像路径
-        src_extraction: 源图提取结果
-        cand_extraction: 候选图提取结果
-        output_path: 输出路径
-        
-    Returns:
-        输出路径
-    """
-    # 加载原图
-    src_img = cv2.imread(source_path)
-    cand_img = cv2.imread(candidate_path)
-    
-    if src_img is None or cand_img is None:
-        return None
-    
-    # 调整大小使两图高度一致
-    h1, w1 = src_img.shape[:2]
-    h2, w2 = cand_img.shape[:2]
-    target_h = max(h1, h2)
-    
-    if h1 < target_h:
-        scale = target_h / h1
-        src_img = cv2.resize(src_img, None, fx=scale, fy=scale)
-    if h2 < target_h:
-        scale = target_h / h2
-        cand_img = cv2.resize(cand_img, None, fx=scale, fy=scale)
-    
-    # 绘制提取结果
-    src_viz = visualize_extraction(src_img, 
-                                   src_extraction.get('nodes', []),
-                                   src_extraction.get('edges', []))
-    cand_viz = visualize_extraction(cand_img,
-                                     cand_extraction.get('nodes', []),
-                                     cand_extraction.get('edges', []))
-    
-    # 并排显示
-    h1, w1 = src_viz.shape[:2]
-    h2, w2 = cand_viz.shape[:2]
-    
-    canvas_h = max(h1, h2) + 60  # 60px用于标题
-    canvas_w = w1 + w2 + 30
-    
-    canvas = np.ones((canvas_h, canvas_w, 3), dtype=np.uint8) * 255
-    
-    # 放置两图
-    canvas[30:30+h1, 10:10+w1] = src_viz
-    canvas[30:30+h2, 20+w1:20+w1+w2] = cand_viz
-    
-    # 添加标题
-    cv2.putText(canvas, "源拓扑图", (10, 20), 
-               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
-    cv2.putText(canvas, "对比拓扑图", (20+w1, 20),
-               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
-    
-    # 保存
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    cv2.imwrite(output_path, canvas)
-    
-    return output_path
-
-
-# 测试代码
-if __name__ == "__main__":
-    import sys
-    
-    if len(sys.argv) > 2:
-        source = sys.argv[1]
-        candidates = sys.argv[2:]
-        
-        print(f"源文件: {source}")
-        print(f"候选文件: {candidates}")
-        
-        detector = TopologyDetector(enable_ocr=False)
-        result = detector.detect(source, candidates)
-        
-        print(f"\n检测完成!")
-        print(f"总相似度: {result['top_similarity']:.2f}%")
-        print(f"比对数量: {result['total_compared']}")
-        
-        for r in result['results']:
-            print(f"\n  候选: {r['candidate']}")
-            print(f"    综合相似度: {r.get('similarity_score', 0):.2f}%")
-            print(f"    图像哈希: {r.get('image_hash_score', 0):.2f}%")
-            print(f"    ORB匹配: {r.get('orb_match_count', 0)}点")
-            print(f"    文本相似度: {r.get('text_similarity', 0):.2f}%")
-            print(f"    图结构相似度: {r.get('graph_similarity', 0):.2f}%")
-            print(f"    是否同构: {r.get('is_isomorphic', False)}")
-            print(f"    是否可疑: {r.get('is_suspicious', False)}")

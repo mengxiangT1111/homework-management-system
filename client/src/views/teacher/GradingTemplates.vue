@@ -70,8 +70,8 @@
     </div>
 
     <!-- 编辑器对话框 -->
-    <el-dialog v-model="editorVisible" :title="editingId ? '编辑模板（草稿）' : '新建模板'" width="960px" top="3vh">
-      <el-form :model="form" label-width="80px" size="small">
+    <el-dialog v-model="editorVisible" :title="editingLocked ? '查看模板（已发布锁定，可克隆修改）' : (editingId ? '编辑模板（草稿）' : '新建模板')" width="960px" top="3vh">
+      <el-form :model="form" :disabled="editingLocked" label-width="80px" size="small">
         <el-row :gutter="12">
           <el-col :span="8"><el-form-item label="名称" required><el-input v-model="form.name" placeholder="如：高中议论文批改" /></el-form-item></el-col>
           <el-col :span="5"><el-form-item label="科目"><el-input v-model="form.subject" placeholder="语文/通用" /></el-form-item></el-col>
@@ -154,13 +154,16 @@
           </div>
         </el-card>
 
-        <el-button style="width:100%" @click="addDimension">+ 添加评分维度</el-button>
+        <el-button style="width:100%" :disabled="editingLocked" @click="addDimension">+ 添加评分维度</el-button>
       </div>
 
       <template #footer>
-        <el-button @click="editorVisible = false">取消</el-button>
-        <el-button type="primary" plain :loading="saving" @click="save(false)">保存草稿</el-button>
-        <el-button type="primary" :loading="saving" @click="save(true)">保存并发布</el-button>
+        <el-button @click="editorVisible = false">{{ editingLocked ? '关闭' : '取消' }}</el-button>
+        <template v-if="!editingLocked">
+          <el-button type="primary" plain :loading="saving" @click="save(false)">保存草稿</el-button>
+          <el-button type="primary" :loading="saving" @click="save(true)">保存并发布</el-button>
+        </template>
+        <el-button v-else type="primary" @click="cloneFromView">克隆为我的草稿</el-button>
       </template>
     </el-dialog>
   </div>
@@ -185,6 +188,9 @@ const filterStatus = ref('')
 
 const editorVisible = ref(false)
 const editingId = ref(null)
+// 已发布/停用模板在编辑器中只读（历史 bug：仍开放保存按钮，靠后端报错兜底）
+const editingLocked = ref(false)
+const editingSource = ref(null)
 const saving = ref(false)
 
 const emptyForm = () => ({
@@ -263,6 +269,8 @@ function handlePage(p) { page.value = p; loadList() }
 
 function openCreate() {
   editingId.value = null
+  editingLocked.value = false
+  editingSource.value = null
   Object.assign(form, emptyForm())
   editorVisible.value = true
 }
@@ -272,6 +280,8 @@ async function openEdit(row) {
     const res = await gradingApi.templateDetail(row.id)
     const j = res.data.json
     editingId.value = row.id
+    editingSource.value = row
+    editingLocked.value = row.status !== 'draft'
     Object.assign(form, {
       name: j.name,
       subject: j.subject,
@@ -281,12 +291,18 @@ async function openEdit(row) {
       dimensions: j.dimensions
     })
     if (row.status !== 'draft') {
-      ElMessage.info('该模板已发布锁定，保存将失败；请先"克隆"出副本再修改')
+      ElMessage.info('已发布模板为只读，可点击"克隆为我的草稿"后修改')
     }
     editorVisible.value = true
   } catch (e) {
     ElMessage.error(e.response?.data?.message || '加载模板详情失败')
   }
+}
+
+function cloneFromView() {
+  const row = editingSource.value
+  editorVisible.value = false
+  if (row) clone(row)
 }
 
 async function save(publishAfter) {

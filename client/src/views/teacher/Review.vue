@@ -31,7 +31,7 @@
 
     <!-- 学生列表 -->
     <div class="card-section">
-      <el-table :data="data?.students || []" stripe>
+      <el-table :data="pagedStudents" stripe>
         <el-table-column label="学号" prop="username" width="120" />
         <el-table-column label="姓名" prop="real_name" width="100" />
         <el-table-column label="提交状态" width="100" align="center">
@@ -83,6 +83,12 @@
           </template>
         </el-table-column>
       </el-table>
+      <el-pagination
+        v-if="(data?.students || []).length > studentPageSize" background layout="prev, pager, next, total"
+        :total="(data?.students || []).length" :page-size="studentPageSize" :current-page="studentPage"
+        class="table-footer"
+        @current-change="p => studentPage = p"
+      />
     </div>
 
     <!-- 批阅对话框 -->
@@ -277,6 +283,14 @@ const plagiarismVisible = ref(false)
 const plagiarismSubmissionId = ref(null)
 const assignmentId = computed(() => parseInt(route.params.id))
 
+// 学生表客户端分页：全班全量返回，直接渲染大班时页面冗长
+const studentPage = ref(1)
+const studentPageSize = 15
+const pagedStudents = computed(() => {
+  const arr = data.value?.students || []
+  return arr.slice((studentPage.value - 1) * studentPageSize, studentPage.value * studentPageSize)
+})
+
 const classInfo = computed(() => {
   const a = data.value?.assignment
   if (!a) return ''
@@ -337,7 +351,7 @@ function openGrade(row) {
   gradingApi.resultBySubmission(row.submission.id).then(res => {
     const full = Number(res.data?.full_score)
     if (Number.isFinite(full) && full > 100) {
-      gradeMax.value = Math.min(full, 999.9)
+      gradeMax.value = full
       if (Number(gradeForm.score) > gradeMax.value) gradeForm.score = gradeMax.value
     }
   }).catch(() => {})

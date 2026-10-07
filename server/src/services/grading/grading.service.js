@@ -401,9 +401,8 @@ async function applyToSubmission(task, { total, parsed, templateJSON }) {
     parsed.knowledge_errors.length ? `【知识盲区】${parsed.knowledge_errors.join('；')}` : ''
   ].filter(Boolean).join('\n\n');
 
-  // submissions.score 为 DECIMAL(5,2)（上限 999.99），模板满分最高 1000，
-  // 越界值会导致 MySQL 拒绝写入、批改任务反复失败，这里钳到列上限
-  const scoreToApply = Math.min(total, 999.9);
+  // submissions.score 已迁移为 DECIMAL(6,2)（上限 9999.99），模板满分最高 1000 直接可写
+  const scoreToApply = total;
 
   await Submission.update({
     score: scoreToApply,
@@ -538,7 +537,7 @@ async function submitReview({ review, reviewer, action, finalScore, dimensionAdj
       ].filter(Boolean).join('\n\n');
 
       await Submission.update({
-        score: Math.min(finalScoreVal, 999.9), // submissions.score 为 DECIMAL(5,2)，钳到列上限
+        score: finalScoreVal,
         comment: comment2,
         status: 'graded',
         graded_by: reviewer.id,

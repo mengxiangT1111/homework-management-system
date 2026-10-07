@@ -412,6 +412,9 @@ exports.getPlagiarismResults = async (req, res, next) => {
       orbMatchCount: r.orb_match_count,
       isIsomorphic: r.is_isomorphic === 1,
       isSuspicious: r.is_suspicious === 1,
+      // C7：单维度检测失败标记（ORB/OCR/图结构异常置 0 会静默拉低综合分，显式提示）
+      dimensionFailures: (r.details && Array.isArray(r.details.dimension_failures) && r.details.dimension_failures.length)
+        ? r.details.dimension_failures : null,
       status: r.status,
       checkedAt: r.checked_at
     }));

@@ -160,6 +160,7 @@ export const gradingApi = {
   resultBySubmission: (submissionId) => request.get(`/grading/results/submission/${submissionId}`),
   reviews: (params) => request.get('/grading/reviews', { params }),
   submitReview: (id, data) => request.post(`/grading/reviews/${id}`, data),
+  claimReview: (id) => request.post(`/grading/reviews/${id}/claim`),
   // 提示词版本管理（管理员）
   prompts: (params) => request.get('/grading/prompts', { params }),
   createPromptVersion: (data) => request.post('/grading/prompts/versions', data),

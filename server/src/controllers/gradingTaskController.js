@@ -101,6 +101,8 @@ exports.reviewQueue = async (req, res, next) => {
         attributes: ['id']
       });
       where.task_id = taskRows.map(t => t.id); // 空数组=无工单
+      // B3 认领制筛选：只看自己认领的工单
+      if (req.query.mine === '1') where.assigned_to = req.user.id;
     }
 
     const { rows, count } = await GradingReview.findAndCountAll({
@@ -113,6 +115,14 @@ exports.reviewQueue = async (req, res, next) => {
       offset: (page - 1) * pageSize,
       limit: pageSize
     });
+    // 认领人姓名（assigned_to 只存 id，前端展示需要名字）
+    const assigneeIds = [...new Set(rows.map(r => r.assigned_to).filter(Boolean))];
+    const assignees = assigneeIds.length ? await User.findAll({
+      where: { id: assigneeIds }, attributes: ['id', 'real_name', 'username']
+    }) : [];
+    const assigneeName = {};
+    for (const u of assignees) assigneeName[u.id] = u.real_name || u.username;
+
     // L1 查重×批改联动：附带每份提交的查重最高相似度，复核时同屏展示查重证据
     const subIds = rows.map(r => r.submission_id);
     const plagRows = subIds.length ? await PlagiarismResult.findAll({
@@ -138,8 +148,35 @@ exports.reviewQueue = async (req, res, next) => {
       json.original_score = Number(json.original_score);
       if (json.final_score !== null && json.final_score !== undefined) json.final_score = Number(json.final_score);
       json.plagiarism_max_score = plagMaxBySubmission[r.submission_id] ?? null;
+      json.assigned_name = r.assigned_to ? (assigneeName[r.assigned_to] || '已认领') : null;
       return json;
     }), count, page, pageSize);
+  } catch (err) { next(err); }
+};
+
+// 认领复核工单（B3：assigned_to 落地为"认领制"——多教师场景避免重复复核，
+// pending 工单先到先得，认领后可在"只看我认领的"筛选中集中处理）
+exports.claimReview = async (req, res, next) => {
+  try {
+    const review = await GradingReview.findByPk(req.params.id);
+    if (!review) return fail(res, '复核工单不存在', 404);
+    if (review.status !== 'pending') return fail(res, '该工单已处理，无需认领', 422);
+    if (review.assigned_to && review.assigned_to !== req.user.id) {
+      return fail(res, '该工单已被其他教师认领', 422);
+    }
+    if (review.assigned_to === req.user.id) {
+      return success(res, null, '该工单已由你认领');
+    }
+    // 教师只能认领自己作业产生的工单（与 submitReview 同口径）
+    if (req.user.role === 'teacher') {
+      const task = await GradingTask.findByPk(review.task_id);
+      const asg = task ? await Assignment.findByPk(task.assignment_id) : null;
+      if (!asg || asg.teacher_id !== req.user.id) {
+        return fail(res, '只能认领自己作业的复核工单', 403);
+      }
+    }
+    await review.update({ assigned_to: req.user.id });
+    return success(res, null, '已认领');
   } catch (err) { next(err); }
 };
 

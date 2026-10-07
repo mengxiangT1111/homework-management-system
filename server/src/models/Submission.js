@@ -24,9 +24,9 @@ const Submission = sequelize.define('Submission', {
     comment: '提交状态：已提交/已评分/已退回'
   },
   score: {
-    type: DataTypes.DECIMAL(5, 2),
+    type: DataTypes.DECIMAL(6, 2),
     allowNull: true,
-    comment: '分数'
+    comment: '分数（评分模板满分允许 1-1000，DECIMAL(6,2) 上限 9999.99）'
   },
   comment: {
     type: DataTypes.TEXT,
