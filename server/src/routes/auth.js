@@ -32,6 +32,20 @@ const registerLimiter = rateLimit({
   legacyHeaders: false
 });
 
+// 密码找回/重置速率限制：验证码为 6 位数字空间，限流必须紧（10 分钟 5 次/IP）
+const resetLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 5,
+  message: {
+    code: 429,
+    success: false,
+    message: '操作过于频繁，请稍后再试',
+    data: null
+  },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
 // 注册
 router.post('/register', registerLimiter, authController.register);
 // 登录
@@ -42,5 +56,9 @@ router.get('/profile', auth, authController.getProfile);
 router.put('/profile', auth, authController.updateProfile);
 // 修改密码
 router.put('/password', auth, authController.changePassword);
+
+// 密码找回（无登录态；独立限流防验证码爆破）
+router.post('/forgot-password', resetLimiter, authController.forgotPassword);
+router.post('/reset-password', resetLimiter, authController.resetPassword);
 
 module.exports = router;

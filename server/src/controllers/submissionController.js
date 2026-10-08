@@ -57,13 +57,11 @@ async function deletePhysicalFiles(filePaths) {
   }
 }
 
-/** 发通知但不让通知失败影响主流程结果（此前通知表瞬断会把已成功的提交报成 500） */
+/** 发通知但不让通知失败影响主流程结果（此前通知表瞬断会把已成功的提交报成 500）。
+ * 统一走 notify.service：站内信必达 + EMAIL_NOTIFY_TYPES 类型（成绩公布/截止提醒）邮件扇出 */
+const notifyService = require('../services/notify.service');
 async function safeCreateNotification(payload) {
-  try {
-    await Notification.create(payload);
-  } catch (e) {
-    console.warn('[通知] 发送失败（不影响主流程）:', e.message);
-  }
+  await notifyService.notify(payload);
 }
 
 // 学生提交作业（创建/更新提交记录，绑定已上传的文件）

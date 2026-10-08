@@ -15,6 +15,7 @@
 // 测试进程内把检测服务指向自举的 8901 端口；token 两端共用（dotenv 不覆盖已设值）
 process.env.DETECTION_SERVICE_URL = process.env.DETECTION_SERVICE_URL || 'http://127.0.0.1:8901';
 if (!process.env.DETECTION_API_TOKEN) process.env.DETECTION_API_TOKEN = 'itest-token';
+process.env.MAIL_CAPTURE = '1'; // 邮件捕获模式：不发真邮件，验证码记入 mailer._captured 供断言
 require('dotenv').config();
 const { test, before, after } = require('node:test');
 const assert = require('node:assert');
@@ -102,7 +103,8 @@ before(async () => {
   ctx.fileMeta = { original_name: `答案${TS}.txt`, file_path: ctx.filePath, file_size: 100, mime_type: 'text/plain', file_hash: null };
 
   // 评分模板：走真实创建+发布接口（顺带回归模板链路）
-  const tplRes = await request(app).post('/api/grading/templates').set(auth(await login(`it${TS}ta`))).send({
+  const taToken0 = await login(`it${TS}ta`);
+  const tplRes = await request(app).post('/api/grading/templates').set(auth(taToken0)).send({
     name: `集成模板${TS}`, subject: '数学', content_type: '主观题', full_score: 1000, description: '集成测试用',
     dimensions: [
       { code: 'D1', name: '过程', weight: 60, description: '', rubrics: [{ level: 'A', score_range: [540, 600], descriptor: '过程完整且推理正确' }, { level: 'B', score_range: [300, 539], descriptor: '过程基本正确有瑕疵' }] },
@@ -111,7 +113,7 @@ before(async () => {
   });
   assert.equal(tplRes.status, 200, `模板创建失败: ${JSON.stringify(tplRes.body).slice(0, 200)}`);
   ctx.templateId = tplRes.body.data.id;
-  const pubRes = await request(app).post(`/api/grading/templates/${ctx.templateId}/publish`).set(auth(await login(`it${TS}ta`)));
+  const pubRes = await request(app).post(`/api/grading/templates/${ctx.templateId}/publish`).set(auth(taToken0));
   assert.equal(pubRes.status, 200, `模板发布失败: ${JSON.stringify(pubRes.body).slice(0, 200)}`);
 
   tokens = {
@@ -294,6 +296,38 @@ test('B3 认领回归：认领成功/他师越权拒/只看我认领的筛选', 
   assert.ok((r.body.data.list || []).some(x => x.id === rv.id), 'mine 筛选应包含已认领工单');
   // 再认领幂等
   r = await request(app).post(`/api/grading/reviews/${rv.id}/claim`).set(auth(tokens.ta));
+  assert.equal(r.status, 200);
+});
+
+test('密码找回全链路：验证码邮件 → 重置 → 新密码登录 → 旧 token 失效 → 重放被拒', async () => {
+  const mailer = require('../services/mailer.service');
+  assert.ok(mailer.isCapture(), '测试进程应处于邮件捕获模式');
+  // 绑定邮箱
+  await User.update({ email: `it${TS}s1@itest.local` }, { where: { id: ctx.stu1.id } });
+  // 发送验证码（捕获模式记录到 _captured.last）
+  let r = await request(app).post('/api/auth/forgot-password').send({ account: `it${TS}s1` });
+  assert.equal(r.status, 200, JSON.stringify(r.body).slice(0, 120));
+  const sent = mailer._captured.last;
+  assert.ok(sent && sent.to === `it${TS}s1@itest.local`, '应捕获到发给绑定邮箱的验证码邮件');
+  const m = /验证码：(\d{6})/.exec(sent.text || '');
+  assert.ok(m, '邮件正文应含 6 位验证码');
+  // 错误验证码 → 401（统一文案，不泄露账号）
+  r = await request(app).post('/api/auth/reset-password').send({ account: `it${TS}s1`, code: '000000', new_password: 'NewIt@12345' });
+  assert.equal(r.status, 401);
+  // 正确验证码 → 重置成功
+  r = await request(app).post('/api/auth/reset-password').send({ account: `it${TS}s1@itest.local`, code: m[1], new_password: 'NewIt@12345' });
+  assert.equal(r.status, 200, JSON.stringify(r.body).slice(0, 120));
+  // 旧登录态失效（密码版本指纹）
+  r = await request(app).get('/api/submissions/my/list').set(auth(tokens.s1));
+  assert.equal(r.status, 401, '改密后旧 token 应失效');
+  // 新密码可登录
+  r = await request(app).post('/api/auth/login').send({ username: `it${TS}s1`, password: 'NewIt@12345', school_id: ctx.school.id });
+  assert.equal(r.status, 200, `新密码登录应成功: ${JSON.stringify(r.body).slice(0, 120)}`);
+  // 同一验证码重放 → 拒绝（HMAC 掺密码哈希指纹，改密后旧码即失效）
+  r = await request(app).post('/api/auth/reset-password').send({ account: `it${TS}s1`, code: m[1], new_password: 'Again@12345' });
+  assert.equal(r.status, 401, '旧验证码重放应被拒');
+  // 无邮箱账号：发送返回统一成功文案（不泄露绑定状态）
+  r = await request(app).post('/api/auth/forgot-password').send({ account: `it${TS}s2` });
   assert.equal(r.status, 200);
 });
 

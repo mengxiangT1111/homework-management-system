@@ -5,6 +5,8 @@ import { ElMessage } from 'element-plus'
 export const authApi = {
   register: (data) => request.post('/auth/register', data),
   login: (data) => request.post('/auth/login', data),
+  forgotPassword: (data) => request.post('/auth/forgot-password', data),
+  resetPassword: (data) => request.post('/auth/reset-password', data),
   getProfile: () => request.get('/auth/profile'),
   updateProfile: (data) => request.put('/auth/profile', data),
   changePassword: (data) => request.put('/auth/password', data)

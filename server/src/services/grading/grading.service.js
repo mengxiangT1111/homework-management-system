@@ -414,12 +414,9 @@ async function applyToSubmission(task, { total, parsed, templateJSON }) {
 }
 
 async function safeNotify(userId, title, content) {
-  try {
-    if (!userId) return;
-    await Notification.create({ user_id: userId, title, content, type: 'grade' });
-  } catch (e) {
-    console.warn('[批改] 发送通知失败:', e.message);
-  }
+  if (!userId) return;
+  // notify.service：站内信必达 + type=grade 时邮件扇出（SMTP 未配置则仅站内信）
+  require('../notify.service').notify({ user_id: userId, title, content, type: 'grade' }).catch(() => {});
 }
 
 // ===== 查询辅助 =====

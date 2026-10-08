@@ -153,6 +153,23 @@ exports.generateDeadlineReminders = async function () {
       await Notification.bulkCreate(toCreate);
       created = toCreate.length;
       console.log(`[通知] 生成 ${created} 条截止提醒`);
+      // 邮件扇出（SMTP 未配置时跳过）：一次取齐收件人邮箱再逐条异步发送，
+      // 邮件慢/失败不影响定时任务
+      const mailer = require('../services/mailer.service');
+      if (mailer.isEnabled()) {
+        try {
+          const { User } = require('../models');
+          const recipients = await User.findAll({
+            where: { id: toCreate.map(n => n.user_id) },
+            attributes: ['id', 'email']
+          });
+          const emailById = new Map(recipients.filter(u => u.email).map(u => [u.id, u.email]));
+          for (const n of toCreate) {
+            const to = emailById.get(n.user_id);
+            if (to) mailer.sendMail({ to, subject: `【信衡】${n.title}`, text: n.content }).catch(() => {});
+          }
+        } catch (e) { /* 邮件扇出失败不影响提醒 */ }
+      }
     }
     return created;
   } catch (err) {

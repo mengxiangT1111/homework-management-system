@@ -1,5 +1,8 @@
 const bcrypt = require('bcryptjs');
+const { Op } = require('sequelize');
 const { User, ClassStudent, Class, School, Notification } = require('../models');
+const resetCode = require('../utils/resetCode');
+const mailer = require('../services/mailer.service');
 const { success, fail } = require('../utils/response');
 const { generateToken, sanitizeUser } = require('../utils/auth');
 
@@ -193,4 +196,63 @@ exports.changePassword = async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+};
+
+
+// 发送密码找回验证码（无表方案：HMAC 时间窗验证码经邮件下发，见 utils/resetCode.js）
+// POST /api/auth/forgot-password { account: 用户名或绑定邮箱 }
+exports.forgotPassword = async (req, res, next) => {
+  try {
+    const account = String(req.body.account || '').trim();
+    if (!account) return fail(res, '请输入用户名或绑定的邮箱', 422);
+    if (!mailer.isEnabled()) {
+      return fail(res, '邮件服务未配置，请联系管理员重置密码', 503);
+    }
+    const user = await User.findOne({
+      where: { [Op.or]: [{ username: account }, { email: account }] },
+      attributes: ['id', 'username', 'email', 'password', 'status']
+    });
+    // 统一成功文案，不泄露账号是否存在 / 是否绑定邮箱
+    if (user && user.status === 1 && user.email) {
+      const code = resetCode.generate(user.id, user.password);
+      const r = await mailer.sendMail({
+        to: user.email,
+        subject: '【信衡】密码找回验证码',
+        text: `你正在重置账号「${user.username}」的密码。
+
+验证码：${code}
+
+10 分钟内有效。若非本人操作，请忽略本邮件。`
+      });
+      if (!r.ok) {
+        return fail(res, '验证码邮件发送失败，请稍后重试或联系管理员', 500);
+      }
+    }
+    return success(res, null, '若该账号绑定了邮箱，验证码已发送（10 分钟内有效）');
+  } catch (err) { next(err); }
+};
+
+// 重置密码（验证码校验通过后改密；改密即改密码版本，全部旧登录态自动失效）
+// POST /api/auth/reset-password { account, code, new_password }
+exports.resetPassword = async (req, res, next) => {
+  try {
+    const { account, code, new_password } = req.body;
+    const acc = String(account || '').trim();
+    if (!acc || !/^\d{6}$/.test(String(code || '')) || !new_password) {
+      return fail(res, '参数不完整：账号、6 位验证码、新密码', 422);
+    }
+    if (String(new_password).length < 6) {
+      return fail(res, '新密码至少 6 位', 422);
+    }
+    const user = await User.findOne({
+      where: { [Op.or]: [{ username: acc }, { email: acc }] },
+      attributes: ['id', 'username', 'email', 'password', 'status']
+    });
+    // 统一失败文案（账号不存在 / 验证码错 / 账号禁用同文案），防账号枚举
+    if (!user || user.status !== 1 || !resetCode.verify(user.id, user.password, String(code))) {
+      return fail(res, '验证码错误或已过期', 401);
+    }
+    await user.update({ password: await bcrypt.hash(String(new_password), 10) });
+    return success(res, null, '密码已重置，请使用新密码登录（所有旧登录态已失效）');
+  } catch (err) { next(err); }
 };
