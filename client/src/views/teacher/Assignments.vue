@@ -335,7 +335,8 @@ async function saveEdit() {
 
 function downloadAll(row) {
   if (!row.submit_count) { ElMessage.warning('暂无提交，无法下载'); return }
-  downloadFile(submissionApi.downloadAll(row.id), `${row.title}_提交.zip`)
+  // 整班打包需逐个物化 COS 文件再压缩，放宽到 30 分钟
+  downloadFile(submissionApi.downloadAll(row.id), `${row.title}_提交.zip`, 1800000)
 }
 
 function exportExcel(row) {

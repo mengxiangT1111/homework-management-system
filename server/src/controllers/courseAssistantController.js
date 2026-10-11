@@ -300,24 +300,35 @@ exports.assistantDownloadAll = async (req, res, next) => {
     res.on('close', () => { archive.abort(); });
     archive.pipe(res);
 
-    const { ensureLocalFile } = require('../utils/fileStorage').helpers;
-    const os = require('os');
+    const { ensureLocalFile, isCosTmpFile } = require('../utils/fileStorage').helpers;
+
+    // COS 物化用并发池（与教师端打包下载同口径）：串行下载是整班打包超时的主因
+    const tasks = [];
+    for (const sub of submissions) {
+      const folderName = `${sub.student.real_name}_${sub.student.username}`.replace(/[\\/:*?"<>|]/g, '_');
+      for (const file of sub.files) {
+        if (file.is_cleaned) continue; // 已清理的文件不再打包
+        tasks.push({ filePath: file.file_path, entryName: `${folderName}/${path.basename(file.original_name)}` });
+      }
+    }
 
     const tmpFiles = [];
-    try {
-      for (const sub of submissions) {
-        const folderName = `${sub.student.real_name}_${sub.student.username}`.replace(/[\\/:*?"<>|]/g, '_');
-        for (const file of sub.files) {
-          if (file.is_cleaned) continue; // 已清理的文件不再打包
-          try {
-            const abs = await ensureLocalFile(file.file_path);
-            if (abs.startsWith(os.tmpdir())) tmpFiles.push(abs);
-            archive.file(abs, { name: `${folderName}/${path.basename(file.original_name)}` });
-          } catch (e) {
-            console.warn('[课代表打包] 文件获取失败，跳过:', file.file_path, e.message);
-          }
+    const concurrency = Math.max(1, parseInt(process.env.ZIP_COS_CONCURRENCY, 10) || 6);
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < tasks.length) {
+        const t = tasks[cursor++];
+        try {
+          const abs = await ensureLocalFile(t.filePath);
+          if (isCosTmpFile(abs)) tmpFiles.push(abs);
+          archive.file(abs, { name: t.entryName });
+        } catch (e) {
+          console.warn('[课代表打包] 文件获取失败，跳过:', t.filePath, e.message);
         }
       }
+    };
+    try {
+      await Promise.all(Array.from({ length: Math.min(concurrency, tasks.length) }, worker));
       await archive.finalize();
     } finally {
       const fs = require('fs');

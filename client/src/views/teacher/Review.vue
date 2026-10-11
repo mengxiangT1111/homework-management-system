@@ -381,7 +381,8 @@ function downloadF(f) {
 }
 
 function downloadAll() {
-  downloadFile(submissionApi.downloadAll(route.params.id), '提交打包.zip')
+  // 整班打包需逐个物化 COS 文件再压缩，放宽到 30 分钟
+  downloadFile(submissionApi.downloadAll(route.params.id), '提交打包.zip', 1800000)
 }
 
 function exportExcel() {

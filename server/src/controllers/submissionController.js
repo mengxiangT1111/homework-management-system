@@ -1,6 +1,5 @@
 const path = require('path');
 const fs = require('fs');
-const os = require('os');
 const { Op } = require('sequelize');
 const archiver = require('archiver');
 const ExcelJS = require('exceljs');
@@ -14,7 +13,7 @@ const { isCOSConfigured, headObject, deleteFromCOS } = require('../config/cos');
 
 // 上传目录绝对路径
 const UPLOAD_DIR = path.resolve(path.join(__dirname, '../../', process.env.UPLOAD_DIR || 'uploads'));
-const { isCOSPath, extractCOSKey, ensureLocalFile } = require('../utils/fileStorage').helpers;
+const { isCOSPath, extractCOSKey, ensureLocalFile, isCosTmpFile } = require('../utils/fileStorage').helpers;
 
 // 获取扩展名
 function getExt(filename) {
@@ -501,23 +500,37 @@ exports.downloadAll = async (req, res, next) => {
     // 客户端取消下载时终止打包，避免服务端空转
     res.on('close', () => { archive.abort(); });
     archive.pipe(res);
+    // 立即下发响应头：首个文件物化完成前不产生响应体，避免反代按空闲连接掐断（nginx proxy_read_timeout）
+    if (typeof res.flushHeaders === 'function') res.flushHeaders();
 
+    // 按学生建文件夹（兼容 COS 与本地文件）
+    const tasks = [];
+    for (const sub of submissions) {
+      const folderName = sanitizeFileName(`${sub.student.real_name}_${sub.student.username}`);
+      for (const file of sub.files) {
+        if (file.is_cleaned) continue; // 已清理的文件不再打包
+        tasks.push({ filePath: file.file_path, entryName: `${folderName}/${sanitizeFileName(file.original_name)}` });
+      }
+    }
+
+    // COS 物化用并发池：串行下载时总耗时≈所有文件下载时间之和，是整班打包超时的主因
     const tmpFiles = []; // COS 物化产生的临时文件，打包完成后清理
-    try {
-      // 按学生建文件夹（兼容 COS 与本地文件）
-      for (const sub of submissions) {
-        const folderName = sanitizeFileName(`${sub.student.real_name}_${sub.student.username}`);
-        for (const file of sub.files) {
-          if (file.is_cleaned) continue; // 已清理的文件不再打包
-          try {
-            const abs = await ensureLocalFile(file.file_path);
-            if (abs.startsWith(os.tmpdir())) tmpFiles.push(abs);
-            archive.file(abs, { name: `${folderName}/${sanitizeFileName(file.original_name)}` });
-          } catch (e) {
-            console.warn('[打包下载] 文件获取失败，跳过:', file.file_path, e.message);
-          }
+    const concurrency = Math.max(1, parseInt(process.env.ZIP_COS_CONCURRENCY, 10) || 6);
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < tasks.length) {
+        const t = tasks[cursor++];
+        try {
+          const abs = await ensureLocalFile(t.filePath);
+          if (isCosTmpFile(abs)) tmpFiles.push(abs);
+          archive.file(abs, { name: t.entryName });
+        } catch (e) {
+          console.warn('[打包下载] 文件获取失败，跳过:', t.filePath, e.message);
         }
       }
+    };
+    try {
+      await Promise.all(Array.from({ length: Math.min(concurrency, tasks.length) }, worker));
       await archive.finalize();
     } finally {
       for (const p of tmpFiles) fs.promises.unlink(p).catch(() => {});

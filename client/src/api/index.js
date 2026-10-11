@@ -227,8 +227,8 @@ export const filesApi = {
   previewBlob: (path) => request.get('/files/preview', { params: { path }, responseType: 'blob', timeout: 150000 })
 }
 
-// 下载工具（带 token）
-export function downloadFile(url, filename) {
+// 下载工具（带 token）。timeout 为整个请求的总时长（XHR 语义），大文件打包可显式传更长值
+export function downloadFile(url, filename, timeout = 300000) {
   const token = localStorage.getItem('token')
   const xhr = new XMLHttpRequest()
   xhr.open('GET', url, true)
@@ -258,6 +258,6 @@ export function downloadFile(url, filename) {
   xhr.ontimeout = function () {
     ElMessage.error('下载超时，请重试')
   }
-  xhr.timeout = 300000
+  xhr.timeout = timeout
   xhr.send()
 }

@@ -52,11 +52,22 @@ async function ensureLocalFile(filePath) {
   // 生产环境查重微服务与后端分属两个容器，只有共享卷（uploads）下的路径双方都可见
   const key = extractCOSKey(filePath);
   const filename = path.basename(key);
-  const tmpRoot = path.join(__dirname, '../../', process.env.UPLOAD_DIR || 'uploads', '_detection_tmp');
-  fs.mkdirSync(tmpRoot, { recursive: true });
-  const tmpPath = path.join(tmpRoot, `cos_${Date.now()}_${filename}`);
+  fs.mkdirSync(cosTmpRoot(), { recursive: true });
+  const tmpPath = path.join(cosTmpRoot(), `cos_${Date.now()}_${filename}`);
   await downloadFromCOS(key, tmpPath);
   return tmpPath;
+}
+
+// COS 物化临时目录（与 ensureLocalFile 保持同一处定义）
+function cosTmpRoot() {
+  return path.join(__dirname, '../../', process.env.UPLOAD_DIR || 'uploads', '_detection_tmp');
+}
+
+// 判断绝对路径是否是 COS 物化产生的临时文件（调用方据此在用完后清理）
+function isCosTmpFile(abs) {
+  const root = path.resolve(cosTmpRoot());
+  const p = path.resolve(String(abs));
+  return p === root || p.startsWith(root + path.sep);
 }
 
 /**
@@ -64,4 +75,4 @@ async function ensureLocalFile(filePath) {
  * （统一按提交/样例归属做授权，COS 走短时效签名 URL）
  */
 
-module.exports.helpers = { isCOSPath, extractCOSKey, resolveFileUrl, ensureLocalFile };
+module.exports.helpers = { isCOSPath, extractCOSKey, resolveFileUrl, ensureLocalFile, cosTmpRoot, isCosTmpFile };
