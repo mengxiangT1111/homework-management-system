@@ -5,6 +5,7 @@
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const { pipeline } = require('stream/promises');
 const multer = require('multer');
 const { success, fail } = require('../utils/response');
 const { isCOSConfigured, uploadToCOS } = require('../config/cos');
@@ -304,7 +305,7 @@ exports.mergeChunks = async (req, res, next) => {
     const ext = path.extname(filename).toLowerCase();
     const mergedPath = path.join(MERGED_DIR, hash);
     const chunkDir = path.join(CHUNK_DIR, hash);
-    let mergedSize = null; // 本次合并得到的磁盘真实大小（秒传路径为 null，下面 statSync 兜底）
+    let mergedSize = 0; // 本次合并得到的磁盘真实大小（下面以磁盘 stat 为准）
 
     // 双重校验：确保路径在目标目录内
     if (!isPathContained(MERGED_DIR, hash) || !isPathContained(CHUNK_DIR, hash)) {
@@ -327,8 +328,9 @@ exports.mergeChunks = async (req, res, next) => {
       return fail(res, '请先上传该文件的全部分片后再合并（检测到未持有该文件）', 403);
     }
 
-    // 按序合并
-    const files = fs.readdirSync(chunkDir);
+    // 按序合并（全程异步流式：同步 IO 会冻结事件循环，大文件合并期间
+    // 整个后端停摆数秒到数十秒，登录等所有请求跟着超时）
+    const files = await fs.promises.readdir(chunkDir);
     if (files.length < totalNum) {
       return fail(res, `分片不完整（${files.length}/${totalNum}），请续传缺失分片`, 422);
     }
@@ -337,21 +339,26 @@ exports.mergeChunks = async (req, res, next) => {
     // 互不干扰，也不会误删对方已完成的产物（原先两个流写同一路径会字节交错）
     const tmpPath = `${mergedPath}.${process.pid}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.tmp`;
     const writeStream = fs.createWriteStream(tmpPath);
-    for (let i = 0; i < totalNum; i++) {
-      const chunkFile = path.join(chunkDir, `${hash}_${i}`);
-      if (!fs.existsSync(chunkFile)) {
+    try {
+      for (let i = 0; i < totalNum; i++) {
+        const chunkFile = path.join(chunkDir, `${hash}_${i}`);
+        if (!fs.existsSync(chunkFile)) {
+          await new Promise((resolve) => writeStream.close(resolve));
+          fs.promises.unlink(tmpPath).catch(() => {});
+          return fail(res, `分片 ${i} 缺失，请续传`, 422);
+        }
+        // pipeline 自带背压：磁盘写入慢于读取时自动等待，不会把整个文件积压内存
+        await pipeline(fs.createReadStream(chunkFile), writeStream, { end: false });
+      }
+      await new Promise((resolve, reject) => {
         writeStream.end();
-        fs.promises.unlink(tmpPath).catch(() => {});
-        return fail(res, `分片 ${i} 缺失，请续传`, 422);
-      }
-      const buf = fs.readFileSync(chunkFile);
-      // 处理写缓冲背压：磁盘写入慢于读取时等待 drain，避免整个文件积压内存
-      if (!writeStream.write(buf)) {
-        await new Promise(resolve => writeStream.once('drain', resolve));
-      }
+        writeStream.on('finish', resolve);
+        writeStream.on('error', reject);
+      });
+    } catch (e) {
+      fs.promises.unlink(tmpPath).catch(() => {});
+      throw e;
     }
-    writeStream.end();
-    await new Promise((resolve) => writeStream.on('finish', resolve));
 
     // 校验合并后的文件 hash 是否与前端传入一致（防篡改）
     // 流式计算，避免大文件（上限 500MB）整体读入内存
@@ -363,25 +370,23 @@ exports.mergeChunks = async (req, res, next) => {
       rs.on('error', reject);
     });
     if (actualHash !== hash) {
-      fs.unlinkSync(tmpPath);
+      fs.promises.unlink(tmpPath).catch(() => {});
       return fail(res, '文件校验失败，请重新上传', 422);
     }
 
     // 以磁盘真实大小为准复核上限：body 里的 size 是客户端自报的，可伪造绕过
-    const realSize = fs.statSync(tmpPath).size;
+    const realSize = (await fs.promises.stat(tmpPath)).size;
     if (realSize > MAX_FILE_SIZE) {
-      fs.unlinkSync(tmpPath);
+      fs.promises.unlink(tmpPath).catch(() => {});
       return fail(res, `文件大小超出限制（最大 ${MAX_FILE_SIZE / 1024 / 1024}MB）`, 422);
     }
     mergedSize = realSize;
 
     // 原子落位；目标已存在（并发方先完成，内容同 hash 必一致）时保留现有文件
     try {
-      fs.renameSync(tmpPath, mergedPath);
+      await fs.promises.rename(tmpPath, mergedPath);
       // 合并完成，清理分片目录（仅由落位成功方清理）
-      try {
-        fs.rmSync(chunkDir, { recursive: true, force: true });
-      } catch (e) { /* ignore */ }
+      fs.promises.rm(chunkDir, { recursive: true, force: true }).catch(() => {});
     } catch (e) {
       fs.promises.unlink(tmpPath).catch(() => {});
     }
@@ -403,26 +408,26 @@ exports.mergeChunks = async (req, res, next) => {
       } catch (cosErr) {
         console.error('[COS 上传失败，降级本地存储]', cosErr.message);
         const finalDir = path.join(UPLOAD_DIR, monthDir);
-        if (!fs.existsSync(finalDir)) fs.mkdirSync(finalDir, { recursive: true });
-        fs.copyFileSync(mergedPath, path.join(finalDir, finalName));
+        await fs.promises.mkdir(finalDir, { recursive: true });
+        await fs.promises.copyFile(mergedPath, path.join(finalDir, finalName));
         relativePath = path.join(process.env.UPLOAD_DIR || 'uploads', monthDir, finalName).replace(/\\/g, '/');
       }
     } else {
       // 未配置 COS，存本地
       const finalDir = path.join(UPLOAD_DIR, monthDir);
-      if (!fs.existsSync(finalDir)) fs.mkdirSync(finalDir, { recursive: true });
-      fs.copyFileSync(mergedPath, path.join(finalDir, finalName));
+      await fs.promises.mkdir(finalDir, { recursive: true });
+      await fs.promises.copyFile(mergedPath, path.join(finalDir, finalName));
       relativePath = path.join(process.env.UPLOAD_DIR || 'uploads', monthDir, finalName).replace(/\\/g, '/');
     }
 
     // S6：归属落库（谁上传的，提交绑定时校验）
-    await recordUpload(req.user.id, relativePath, filename, mergedSize || fs.statSync(mergedPath).size);
+    await recordUpload(req.user.id, relativePath, filename, mergedSize);
     releaseActiveHash(req.user.id, hash);
 
     return success(res, {
       original_name: filename,
       file_path: relativePath,
-      file_size: mergedSize || fs.statSync(mergedPath).size,
+      file_size: mergedSize,
       mime_type: String(mime_type || 'application/octet-stream').slice(0, 100),
       file_hash: hash,
       ext: ext.replace('.', '')

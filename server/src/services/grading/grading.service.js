@@ -61,7 +61,7 @@ async function extractSubmissionText(submission) {
     if (isCOSPath(file.file_path)) tempFiles.push(absPath);
     try {
       if (ext === '.txt') {
-        const text = fs.readFileSync(absPath, 'utf-8');
+        const text = await fs.promises.readFile(absPath, 'utf-8');
         if (text.trim()) return { text, tempFiles };
       }
       if (ext === '.docx' || ext === '.doc') {
@@ -70,7 +70,7 @@ async function extractSubmissionText(submission) {
       }
       if (ext === '.pdf') {
         // 文字版 PDF 直接取文本；扫描版 PDF 提不出文本则继续尝试后续文件（不渲染页面图像做 OCR）
-        const data = await getPdfParse()(fs.readFileSync(absPath));
+        const data = await getPdfParse()(await fs.promises.readFile(absPath));
         if (data && data.text && data.text.trim()) return { text: data.text, tempFiles };
       }
     } catch (e) { continue; } // 单文件失败继续尝试下一个
