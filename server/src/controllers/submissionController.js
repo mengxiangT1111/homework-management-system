@@ -515,7 +515,7 @@ exports.downloadAll = async (req, res, next) => {
 
     // COS 物化用并发池：串行下载时总耗时≈所有文件下载时间之和，是整班打包超时的主因
     const tmpFiles = []; // COS 物化产生的临时文件，打包完成后清理
-    const concurrency = Math.max(1, parseInt(process.env.ZIP_COS_CONCURRENCY, 10) || 6);
+    const concurrency = Math.max(1, parseInt(process.env.ZIP_COS_CONCURRENCY, 10) || 40);
     let cursor = 0;
     const worker = async () => {
       while (cursor < tasks.length) {

@@ -313,7 +313,7 @@ exports.assistantDownloadAll = async (req, res, next) => {
     }
 
     const tmpFiles = [];
-    const concurrency = Math.max(1, parseInt(process.env.ZIP_COS_CONCURRENCY, 10) || 6);
+    const concurrency = Math.max(1, parseInt(process.env.ZIP_COS_CONCURRENCY, 10) || 40);
     let cursor = 0;
     const worker = async () => {
       while (cursor < tasks.length) {
